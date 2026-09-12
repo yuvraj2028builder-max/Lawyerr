@@ -1,10 +1,14 @@
 /**
  * OCR Service — provider-based boundary with lazy loading.
- * For MVP, clearly marked unavailable adapter — never returns fabricated text.
- * Tesseract.js provider is lazy-loaded only when requested; initial bundle not inflated.
+ * Option A (implemented): real Tesseract.js OCR, lazy-loaded, English only.
+ * Hindi is explicitly NOT claimed: language data quality was not verified.
+ * Never returns fabricated text; every failure is explicit.
  */
 
 export type OCRStatus = "not_available" | "loading" | "processing" | "completed" | "failed";
+
+/** The only OCR language this MVP claims. Anything else is honestly refused. */
+export const SUPPORTED_OCR_LANGUAGE = "eng";
 
 export interface OCRResult {
   text?: string;
@@ -45,22 +49,22 @@ export class UnavailableOCRService implements OCRService {
 
 /**
  * TesseractOCRService — lazy-loads tesseract.js only when needed.
- * Honest about language support: only claims English unless Hindi data actually configured.
- * Gracefully falls back to not_available if tesseract.js not installed or fails to load.
+ * English only: Hindi/autodetect requests are refused honestly because
+ * Hindi language-data quality was not verified for this MVP.
+ * Gracefully falls back to not_available/failed if the SDK cannot load.
  *
  * Requirements met:
  * - lazy-loaded via dynamic import (not on initial bundle)
- * - progress callback if practical
- * - language explicit (defaults to eng)
- * - cancellation/graceful failure
- * - never fabricates OCR output
+ * - progress callback
+ * - language explicit (eng only)
+ * - worker always terminated, failures never fabricate text
  */
 export class TesseractOCRService implements OCRService {
   private status: OCRStatus = "not_available";
   private loadPromise: Promise<unknown | null> | null = null;
 
   constructor(
-    private language: string = "eng",
+    private language: string = SUPPORTED_OCR_LANGUAGE,
     private forceUnavailable: boolean = false
   ) {}
 
@@ -70,13 +74,10 @@ export class TesseractOCRService implements OCRService {
     this.status = "loading";
     this.loadPromise = (async () => {
       try {
-        // Tesseract is intentionally not bundled by default to keep initial bundle small.
-        // We avoid static import("tesseract.js") so Vite doesn't try to resolve it when not installed.
-        // If tesseract.js is later installed, this dynamic path will be replaced with a real lazy import.
-        // For now, honestly report unavailable without attempting to load nonexistent module.
-        // This satisfies lazy-loading requirement without bundle bloat or fake success.
+        // Lazy chunk: tesseract.js (~200KB+) loads only on first OCR attempt.
+        const mod = await import("tesseract.js");
         this.status = "not_available";
-        return null;
+        return mod;
       } catch {
         this.status = "not_available";
         return null;
@@ -96,12 +97,32 @@ export class TesseractOCRService implements OCRService {
       };
     }
 
+    if (this.language !== SUPPORTED_OCR_LANGUAGE) {
+      return {
+        available: false,
+        status: "not_available",
+        error: `OCR language "${this.language}" is not supported in this MVP — English only. Hindi reading quality was not verified, so it stays off rather than guessing.`,
+        provider: "tesseract",
+        language: this.language,
+      };
+    }
+
+    if (!file.type.startsWith("image/")) {
+      return {
+        available: false,
+        status: "not_available",
+        error: "Automatic reading handles photos and screenshots. Scanned PDFs cannot be read automatically yet — please type the details manually.",
+        provider: "tesseract",
+        language: this.language,
+      };
+    }
+
     const mod = await this.loadTesseract();
     if (!mod) {
       return {
         available: false,
         status: "not_available",
-        error: "OCR is currently unavailable — tesseract.js not available in this environment. Document can still be saved as evidence.",
+        error: "Automatic reading could not start (OCR engine failed to load). The document is still saved as evidence — please type the details manually.",
         provider: "tesseract",
         language: this.language,
       };
@@ -111,26 +132,32 @@ export class TesseractOCRService implements OCRService {
     this.status = "processing";
     try {
       const tesseract = mod as {
-        createWorker?: (lang: string) => Promise<{
-          recognize: (file: File) => Promise<{ data: { text: string } }>;
+        createWorker?: (
+          lang: string,
+          oem?: number,
+          options?: { logger?: (m: { status: string; progress: number }) => void }
+        ) => Promise<{
+          recognize: (file: File) => Promise<{ data: { text: string; confidence?: number } }>;
           terminate: () => Promise<void>;
-          on?: (event: string, cb: (m: { progress: number }) => void) => void;
         }>;
         recognize?: (file: File, lang: string, opts?: { logger?: (m: { status: string; progress: number }) => void }) => Promise<{ data: { text: string } }>;
       };
 
       let text: string | undefined;
 
-      // Prefer createWorker API if available (tesseract.js v4+)
+      // Prefer createWorker API (tesseract.js v4+)
       if (tesseract.createWorker) {
-        const worker = await tesseract.createWorker(this.language);
+        const worker = await tesseract.createWorker(this.language, undefined, {
+          logger: (m) => {
+            if (onProgress && typeof m.progress === "number" && m.status === "recognizing text") {
+              onProgress(Math.round(m.progress * 100));
+            }
+          },
+        });
         try {
-          // Hook progress if available
-          if (onProgress && typeof (worker as unknown as { on?: unknown }).on === "function") {
-            // Not all versions support event emitter
-          }
           const result = await worker.recognize(file);
           text = result.data.text?.trim();
+          if (onProgress) onProgress(100);
         } finally {
           try {
             await worker.terminate();
@@ -200,20 +227,24 @@ export class TesseractOCRService implements OCRService {
 }
 
 /**
- * Provider factory — tries tesseract, falls back to unavailable.
- * Documented provider boundary: caller can check provider name.
+ * Provider factory — explicit opt-in to real OCR, honest fallback otherwise.
  */
 export function createOCRService(opts?: { language?: string; forceUnavailable?: boolean }): OCRService {
-  // In test/jsdom or when tesseract not installed, we return unavailable honestly
-  // The factory attempts lazy load but does not throw
   if (opts?.forceUnavailable) return new UnavailableOCRService();
-  // For now, default to unavailable to keep bundle small; tesseract only instantiated when explicitly requested
-  // Caller can request TesseractOCRService directly if they want to attempt real OCR
+  if (opts?.language && opts.language !== SUPPORTED_OCR_LANGUAGE) {
+    return new TesseractOCRService(opts.language); // will honestly refuse non-English
+  }
   return new UnavailableOCRService();
 }
 
-// Default export remains unavailable to avoid bundle impact; real OCR must be explicitly instantiated
+// Default export stays unavailable: default document flows must explicitly
+// opt into OCR so nothing changes unless the user asks. Real OCR must be
+// explicitly instantiated.
 export const ocrService: OCRService = new UnavailableOCRService();
 
+// Explicit opt-in English OCR (lazy-loaded tesseract.js on first use).
+// Hindi stays off: language-data quality was not verified for this MVP.
+export const englishTesseractService: OCRService = new TesseractOCRService(SUPPORTED_OCR_LANGUAGE, false);
+
 // Also export a lazy tesseract instance for consumers that want to attempt real OCR
-export const tesseractOCRService: OCRService = new TesseractOCRService("eng", true); // forceUnavailable true until tesseract.js is installed and verified
+export const tesseractOCRService: OCRService = new TesseractOCRService("eng", false);

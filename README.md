@@ -10,6 +10,49 @@ NyayaSetu helps an ordinary Indian understand a legal / problem situation and ta
 
 ---
 
+## Prompt 16: final milestone — anonymous-first, sync, Edge AI, real OCR (live blocked: no credentials)
+
+> **Anonymous, no-signup usage is the default and fully supported.** Intake,
+> action plans, evidence, deadlines, timeline, complaint drafts, and document
+> reading all work with zero account creation and zero auth code paths. The
+> app never blocks first use with login.
+
+**Final state — what's real vs local vs unavailable:**
+
+| Area | State |
+|---|---|
+| Anonymous usage (intake → plan → evidence → draft → PDF) | Real, local-only, fully working |
+| Supabase auth (magic link), backend adapter, storage provider, SQL migrations | Real code, honest `not_configured` fallback — **no live project connected** (`.env.local` absent) |
+| Consent-gated per-case sync + save-all + conflicts + retry | Real, tested against mocks; live run needs credentials |
+| Gemini Edge Function (`supabase/functions/ai-explain`) | Code-complete, undeployed; frontend falls back to unavailable |
+| OCR | Real English-only Tesseract.js, lazy-loaded, verified 91% confidence on a reference image; Hindi refused honestly |
+| Court filing, payments, marketplace, WhatsApp/voice, new domains | Intentionally unavailable (non-goals) |
+
+**Known limitations, plainly:** no `.env.local` exists in this environment,
+so Parts 1–2 live verification could not run — `node
+scripts/verify-supabase-live.mjs` exits 2 with the exact reason. Migrations
+were not applied to any project (no CLI/direct DB access here); apply via
+`supabase db push` or the SQL editor per `SUPABASE_SETUP.md`. Sync UI is
+present but inert until sign-in. Local demo data never auto-migrates.
+
+## Prompt 15: Supabase wiring (real code, contracts-only until you configure)
+
+> **Honest status: no live Supabase project is connected.** All providers,
+> migrations, and guides below are real and reviewable, but without
+> `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` the app keeps returning
+> `not_configured` in local demo mode. See `SUPABASE_SETUP.md` to go live.
+
+What was added: `supabase-js` dependency; `src/backend/supabase/` (lazy
+public-env client, `SupabaseAuthProvider` with email magic links — no
+password storage, full `BackendProvider` adapter with RLS-honest error
+mapping, private-storage provider with opaque keys and short-lived signed
+URLs); `supabase/migrations/` (foundation tables + private bucket, every
+private row owner-scoped, RLS enforced by Postgres); an optional account
+panel with success copy shown only after Supabase confirms; header/banner
+that say "Signed in via Supabase" only with a verified session.
+Local demo data is never auto-migrated (explicit consent required first —
+skipped this prompt, stated plainly).
+
 ## Prompt 14: production-readiness audit (no cloud, no live calls, demo intact)
 
 An audit of `src/backend`, `src/services` (including the AI boundary),

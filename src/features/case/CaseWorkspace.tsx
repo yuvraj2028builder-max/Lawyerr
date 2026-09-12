@@ -14,7 +14,9 @@ import { consumerActionPlanService } from "@/services/actionEngine/consumerActio
 import { caseEngine } from "@/services/caseEngine.service";
 import { RECOVERY_STATES } from "@/types/ux";
 import { JourneyStage } from "@/components/common/JourneyStage";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { usabilityObservationService } from "@/services/usabilityObservation.service";
+import { CaseSyncPanel } from "@/features/sync/CaseSyncPanel";
 import { nextRecommendedAction } from "@/types/usability";
 
 // Document handling and PDF drafting are optional, heavier workflow panels.
@@ -171,10 +173,10 @@ export function CaseWorkspace({ kase, onReset }: { kase: Case; onReset: () => vo
         <EvidenceLockerPanel kase={current} onUpdate={handleCaseUpdate} />
 
         {/* Upload Document — real file selection */}
-        <Suspense fallback={<PanelFallback />}><DocumentUploadPanel kase={current} onUpdate={handleCaseUpdate} /></Suspense>
+        <ErrorBoundary><Suspense fallback={<PanelFallback />}><DocumentUploadPanel kase={current} onUpdate={handleCaseUpdate} /></Suspense></ErrorBoundary>
 
         {/* Document Review — extracted facts, user confirmation */}
-        <Suspense fallback={<PanelFallback />}><DocumentReviewPanel kase={current} onUpdate={handleCaseUpdate} /></Suspense>
+        <ErrorBoundary><Suspense fallback={<PanelFallback />}><DocumentReviewPanel kase={current} onUpdate={handleCaseUpdate} /></Suspense></ErrorBoundary>
 
         {/* Deadlines — verified engine */}
         <VerifiedDeadlinesPanel kase={current} onUpdate={handleCaseUpdate} />
@@ -182,8 +184,11 @@ export function CaseWorkspace({ kase, onReset }: { kase: Case; onReset: () => vo
         {/* Timeline — audit trail */}
         <CaseTimelinePanel kase={current} />
 
+        {/* Save / Sync — optional, never required, never automatic */}
+        <CaseSyncPanel kase={current} onSyncChange={async () => { const fresh = await caseEngine.getCase(current.id); if (fresh) handleCaseUpdate(fresh); }} />
+
         {/* Complaint Draft — grounded, placeholders, safety banner */}
-        <Suspense fallback={<PanelFallback />}><ComplaintDraftPanel kase={current} onUpdate={handleCaseUpdate} /></Suspense>
+        <ErrorBoundary><Suspense fallback={<PanelFallback />}><ComplaintDraftPanel kase={current} onUpdate={handleCaseUpdate} /></Suspense></ErrorBoundary>
 
         {/* Legal sources */}
         <LegalPassagesPanel claims={current.analysis?.relevantLaw ?? []} passages={undefined} />

@@ -22,10 +22,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
           <div className="card" style={{ padding: 20, background: "#fef2f2", borderColor: "#fecaca" }}>
             <strong style={{ color: "#991b1b" }}>Something went wrong</strong>
             <p className="small muted" style={{ margin: "8px 0 0" }}>
-              Your data is safe. Please refresh the page.
-            </p>
-            <p className="tiny muted" style={{ margin: "8px 0 0" }}>
-              {this.state.error?.message ?? "Unknown error"}
+              Your data is safe. Please refresh the page — nothing you saved was sent anywhere.
             </p>
             <button className="btn btn--secondary btn--sm" style={{ marginTop: 12 }} onClick={() => window.location.reload()}>
               Refresh

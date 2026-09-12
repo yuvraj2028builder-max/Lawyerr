@@ -1,44 +1,69 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState } from "react";
 import { type AuthSession } from "@/services/auth.service";
-import { authProvider as backendAuthProvider } from "@/backend/authProvider";
+import { LocalDemoAuthProvider } from "@/backend/authProvider";
+import type { AuthProvider } from "@/backend/authProvider";
 import { toLegacyAuthSession } from "@/backend/authMode";
 
 const AuthContext = createContext<AuthSession>({ status: "unavailable", user: null, mode: "development" });
 
 const DEMO_SESSION: AuthSession = { status: "unavailable", user: null, mode: "development" };
 
+/**
+ * Prompt 15: the resolved AuthProvider is the single source of truth —
+ * Supabase auth when public env is configured, otherwise the clearly-labeled
+ * local demo. State starts as demo and only leaves it when a real provider
+ * reports a verified session. Never a fake session.
+ */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AuthSession>(DEMO_SESSION);
   useEffect(() => {
-    // Prompt 14: the backend AuthProvider is the single source of truth.
-    // It is always unauthenticated in local demo — never a fake session —
-    // and the legacy frontend AuthSession shape is kept for UX-only display.
     let cancelled = false;
-    backendAuthProvider
-      .getSession()
-      .then((s) => { if (!cancelled) setSession(toLegacyAuthSession(s)); })
-      .catch(() => { if (!cancelled) setSession(DEMO_SESSION); });
-    const unsubscribe = backendAuthProvider.onAuthStateChange((s) => {
+    let unsubscribe: (() => void) | null = null;
+    let provider: AuthProvider = new LocalDemoAuthProvider();
+    const apply = (s: Parameters<typeof toLegacyAuthSession>[0]) => {
       if (!cancelled) setSession(toLegacyAuthSession(s));
-    });
-    return () => { cancelled = true; unsubscribe(); };
+    };
+    provider
+      .getSession()
+      .then(apply)
+      .catch(() => { if (!cancelled) setSession(DEMO_SESSION); });
+    unsubscribe = provider.onAuthStateChange(apply);
+    // Upgrade to the real Supabase provider only when it is configured.
+    // The dynamic import keeps supabase-js out of the initial bundle.
+    import("@/backend/supabase")
+      .then((m) => m.resolveAuthProvider())
+      .then((resolved) => {
+        if (cancelled) return;
+        provider = resolved;
+        if (unsubscribe) unsubscribe();
+        resolved
+          .getSession()
+          .then(apply)
+          .catch(() => undefined);
+        unsubscribe = resolved.onAuthStateChange(apply);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; if (unsubscribe) unsubscribe(); };
   }, []);
   return <AuthContext.Provider value={session}>{children}</AuthContext.Provider>;
 }
 export function useAuth() { return useContext(AuthContext); }
 
 export interface AuthActions {
-  /** Always fails honestly in local demo — never creates a session. */
+  /** Demo: always fails honestly. Supabase: needs an email — see the account panel. */
   signIn: () => Promise<{ signedIn: false; reason: string }>;
-  /** Complete logout: revokes nothing (nothing exists) and resets demo state. */
+  /** Complete logout through the active provider. */
   signOut: () => Promise<void>;
 }
 
-/** Auth actions delegated to the single-source backend provider. */
+/** Auth actions delegated to the resolved single-source provider. */
 export function useAuthActions(): AuthActions {
+  const resolve = () => import("@/backend/supabase").then((m) => m.resolveAuthProvider());
   return {
-    signIn: () => backendAuthProvider.signIn(),
-    signOut: () => backendAuthProvider.signOut(),
+    signIn: async () => (await resolve()).signIn(),
+    signOut: async () => {
+      await (await resolve()).signOut();
+    },
   };
 }

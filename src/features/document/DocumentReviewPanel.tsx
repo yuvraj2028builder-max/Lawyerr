@@ -15,6 +15,9 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
   const [selected, setSelected] = useState<Record<string, Set<string>>>({}); // docId -> set of field keys
   const [conflicts, setConflicts] = useState<Record<string, Array<{ field: string; existingValue: unknown; extractedValue: unknown }>>>({});
   const [retryBusy, setRetryBusy] = useState<Record<string, boolean>>({});
+  const [ocrBusy, setOcrBusy] = useState<Record<string, boolean>>({});
+  const [ocrProgress, setOcrProgress] = useState<Record<string, number>>({});
+  const [ocrError, setOcrError] = useState<Record<string, string | undefined>>({});
   const [conflictModal, setConflictModal] = useState<{
     doc: DocumentUpload;
     confirmed: DocumentExtractedFact[];
@@ -65,8 +68,51 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
     }
   };
 
-  const handleKeepAsEvidence = async (doc: DocumentUpload) => {
-    // User keeps document as evidence without confirmation — still saves to Evidence Locker
+  // Explicit opt-in English OCR (Option A). Never automatic: the user taps the
+  // button, sees progress, and reviews whatever text comes back. Failure
+  // keeps the file as evidence with a strong manual-entry path.
+  const handleTryOcr = async (doc: DocumentUpload) => {
+    if (!doc.file || !doc.mimeType.startsWith("image/")) return;
+    setOcrBusy((p) => ({ ...p, [doc.id]: true }));
+    setOcrProgress((p) => ({ ...p, [doc.id]: 0 }));
+    setOcrError((p) => ({ ...p, [doc.id]: undefined }));
+    try {
+      const { englishTesseractService } = await import("@/services/ocr.service");
+      const res = await englishTesseractService.extractText(doc.file, (pct) =>
+        setOcrProgress((p) => ({ ...p, [doc.id]: pct }))
+      );
+      if (res.available && res.text) {
+        // Feed OCR text back through the normal pipeline as reviewable facts.
+        const { extractDocumentFacts } = await import("@/services/documentFactExtractor.service");
+        const facts = extractDocumentFacts(res.text, doc.fileName).map((f) => ({
+          ...f,
+          source: "ocr_text" as const,
+          confirmedByUser: false,
+        }));
+        setResults((prev) => ({
+          ...prev,
+          [doc.id]: { status: "needs_review", facts, error: undefined, classification: prev[doc.id]?.classification },
+        }));
+        const { documentUploadService } = await import("@/services/documentUpload.service");
+        await documentUploadService.updateUpload(kase.id, doc.id, {
+          processingStatus: "needs_review",
+          extractedText: res.text,
+          ocrAvailable: true,
+          extractedFacts: facts,
+        });
+        const fresh = await caseEngine.getCase(kase.id);
+        if (fresh) onUpdate(fresh);
+      } else {
+        setOcrError((p) => ({ ...p, [doc.id]: res.error ?? "Automatic reading found no text. Please type the details manually." }));
+      }
+    } catch (e) {
+      setOcrError((p) => ({ ...p, [doc.id]: e instanceof Error ? e.message : "Automatic reading failed. Please type the details manually." }));
+    } finally {
+      setOcrBusy((p) => ({ ...p, [doc.id]: false }));
+    }
+  };
+
+  const handleKeepAsEvidence = async (doc: DocumentUpload) => {    // User keeps document as evidence without confirmation — still saves to Evidence Locker
     const res = results[doc.id];
     const type = (res?.classification?.type as never) ?? "other";
     await evidenceService.addEvidence({
@@ -301,10 +347,23 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
                 <p className="tiny muted" style={{ margin: "4px 0 0" }}>{RECOVERY_STATES.unreadableDocument.message}</p>
                 <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                   <button className="btn btn--primary btn--sm" onClick={() => handleRetry(doc)}>Retry reading</button>
+                  {doc.file && doc.mimeType.startsWith("image/") && (
+                    <button className="btn btn--secondary btn--sm" onClick={() => handleTryOcr(doc)} disabled={ocrBusy[doc.id]}>
+                      {ocrBusy[doc.id] ? `Reading photo… ${ocrProgress[doc.id] ?? 0}%` : "Try automatic reading (English only)"}
+                    </button>
+                  )}
                   <button className="btn btn--secondary btn--sm" onClick={() => handleKeepAsEvidence(doc)}>Keep as evidence</button>
                   <button className="btn btn--ghost btn--sm" style={{ color: "#991b1b" }} onClick={() => handleRemoveDocument(doc)}>Remove document</button>
                 </div>
-                <p className="tiny muted" style={{ margin: "6px 0 0" }}>File remains evidence even though reading failed — distinction: file saved vs document successfully read vs facts confirmed by you.</p>
+                {ocrBusy[doc.id] && (
+                  <div style={{ height: 6, background: "#fee2e2", borderRadius: 999, marginTop: 8 }}>
+                    <div style={{ width: `${ocrProgress[doc.id] ?? 0}%`, height: "100%", background: "#991b1b", borderRadius: 999 }} />
+                  </div>
+                )}
+                {ocrError[doc.id] && (
+                  <p className="tiny" role="alert" style={{ margin: "6px 0 0", color: "#991b1b" }}>{ocrError[doc.id]} You can type the details manually below after keeping it as evidence.</p>
+                )}
+                <p className="tiny muted" style={{ margin: "6px 0 0" }}>Automatic reading handles English photos only — Hindi and scanned PDFs are not supported yet. It downloads its reading engine on first use, so it needs internet that one time. File remains evidence even though reading failed — distinction: file saved vs document successfully read vs facts confirmed by you.</p>
               </div>
             )}
 

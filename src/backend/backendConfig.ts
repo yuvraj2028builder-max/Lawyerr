@@ -38,6 +38,14 @@ export const FORBIDDEN_FRONTEND_ENV_KEYS = [
 ] as const;
 
 function readPublicEnv(key: string): string {
+  // process.env first: live and stubbable in tests (hermetic suites);
+  // import.meta.env in real browser builds, where `process` is undefined.
+  try {
+    const proc = (typeof process !== "undefined" ? (process as unknown as { env?: Record<string, string | undefined> }).env : undefined) ?? {};
+    if (proc[key] !== undefined) return (proc[key] ?? "").trim();
+  } catch {
+    // fall through to import.meta.env
+  }
   try {
     const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
     return (env[key] ?? "").trim();

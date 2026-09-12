@@ -3,9 +3,11 @@ import { Hero } from "@/features/hero/Hero";
 import { EntryPoints } from "@/features/entry/EntryPoints";
 import { IntakeCard } from "@/features/intake/IntakeCard";
 import { CaseWorkspace } from "@/features/case/CaseWorkspace";
+import { SupabaseAuthPanel } from "@/features/auth/SupabaseAuthPanel";
 import { Disclaimer } from "@/components/common/Disclaimer";
 import { DemoBadge } from "@/components/ui/Badge";
 import { ErrorState } from "@/components/common/ErrorState";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { useLanguage } from "@/context/LanguageContext";
 import { useCase } from "@/context/CaseContext";
 import { intakeEngine } from "@/services/intakeEngine.service";
@@ -180,6 +182,7 @@ export function Router() {
   if (view === "intake" && intake && currentCase) {
     const q = intakeEngine.nextQuestion(intake);
     return (
+      <ErrorBoundary>
       <div className="container container--narrow" style={{ padding: "24px 0" }}>
         <div className="stack" style={{ gap: 16 }}>
           <button className="btn btn--ghost btn--sm" style={{ alignSelf: "flex-start" }} onClick={reset}>
@@ -217,11 +220,13 @@ export function Router() {
           <Disclaimer variant="compact" />
         </div>
       </div>
+      </ErrorBoundary>
     );
   }
 
   if ((view === "workspace" || view === "demo") && currentCase) {
     return (
+      <ErrorBoundary>
       <div style={{ paddingBottom: 8 }}>
         {view === "demo" && (
           <div className="container" style={{ paddingTop: 16 }}>
@@ -238,11 +243,13 @@ export function Router() {
         )}
         <CaseWorkspace kase={currentCase} onReset={reset} />
       </div>
+      </ErrorBoundary>
     );
   }
 
   // Landing
   return (
+    <ErrorBoundary>
     <div>
       <Hero onSubmit={startFromPrompt} />
       {error && (
@@ -258,6 +265,8 @@ export function Router() {
         </div>
       )}
       <EntryPoints onSelect={startFromPrompt} />
+
+      <SupabaseAuthPanel />
 
       <Suspense fallback={<BelowFoldFallback />}>
       <ConsumerIntakeFlow
@@ -335,5 +344,6 @@ export function Router() {
 
       <style>{`@media (max-width: 880px) { .grid { grid-template-columns: 1fr !important; } }`}</style>
     </div>
+    </ErrorBoundary>
   );
 }

@@ -60,6 +60,25 @@ fails closed for future protected screens. Audit confirmed: no fetch/XHR/
 WebSocket in `src`, no frontend secrets, id-only error messages, honest
 verified/test-verified/unverified and draft-not-submitted wording.
 
+## Prompt 16 final state (anonymous-first; live blocked: no .env.local)
+
+Anonymous usage is the default entry and touches zero auth code
+(`resolveAuthProvider` → `LocalDemoAuthProvider`,
+`resolveBackendProviderAsync` → `UnavailableBackendAdapter` when env is
+absent). Optional magic-link sign-in lives in `SupabaseAuthPanel` (never a
+blocking gate); header/banner distinguish "Local demo mode" from
+"Signed in via Supabase". `services/sync/caseSync.service.ts` implements
+consent-gated per-case save, save-all-skipping-synced, three-way conflict
+choice, pull-on-cloud-newer, best-effort cleanup + retry on partial
+failure, metadata-only sync when bytes are gone; `CaseSyncPanel` renders it
+with an explicit consent checkbox. `supabase/functions/ai-explain/`
+(Deno, secret-only `GEMINI_API_KEY`) reuses the Prompt 12 contracts with
+server-side re-validation; `services/ai/edgeAiProvider.ts` calls it and
+falls back to unavailable. OCR is Option A: lazy `tesseract.js`, English
+only (verified 91% on a reference image), Hindi/PDF refused honestly.
+Error boundaries wrap every router view and lazy panel; `:focus-visible`
+already global; new inputs labeled with `role="status"`/`role="alert"`.
+
 ## Prompt 9 security boundary
 
 `auth.service.ts` supplies a development-only, unavailable authentication adapter. It never produces a fake signed-in private account. `authorization.service.ts` fails closed because frontend checks cannot protect remote data; a backend must enforce ownership.

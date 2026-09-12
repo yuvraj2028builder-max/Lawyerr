@@ -57,8 +57,8 @@ export function Header({ onNavigateHome }: { onNavigateHome?: () => void }) {
         </button>
 
         <div className="row" style={{ gap: 12 }}>
-          <span className="tiny" title={LOCAL_DEMO_MESSAGE} style={{ padding: "6px 10px", borderRadius: 999, background: "#fff7ed", color: "#9a3412", border: "1px solid #fed7aa", fontWeight: 700 }}>
-            {auth.status === "authenticated" ? "Authenticated account" : "Local demo mode"}
+          <span className="tiny" title={auth.status === "authenticated" ? "Signed in via Supabase — your private online account." : LOCAL_DEMO_MESSAGE} style={{ padding: "6px 10px", borderRadius: 999, background: auth.status === "authenticated" ? "#ecfdf5" : "#fff7ed", color: auth.status === "authenticated" ? "#065f46" : "#9a3412", border: `1px solid ${auth.status === "authenticated" ? "#a7f3d0" : "#fed7aa"}`, fontWeight: 700 }}>
+            {auth.status === "authenticated" ? "Signed in via Supabase" : "Local demo mode"}
           </span>
           <div
             role="group"
