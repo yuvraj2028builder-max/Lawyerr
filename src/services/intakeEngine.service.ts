@@ -10,9 +10,21 @@ export interface IIntakeEngine {
   start(caseId: ID, category?: ProblemCategory | null): IntakeState;
   nextQuestion(state: IntakeState): IntakeQuestion | null;
   answer(state: IntakeState, key: string, value: unknown): IntakeState;
+  skip(state: IntakeState, key: string): IntakeState;
   canComplete(state: IntakeState): boolean;
   summarize(state: IntakeState): string;
   inferCategory(freeText: string): { category: ProblemCategory | null; confidence: number };
+}
+
+/**
+ * Sentinel recorded when the user skips a question. Skips are ANSWERS for
+ * state-machine purposes (the flow must always terminate) but must NEVER be
+ * persisted as case facts or shown as user-provided content.
+ */
+export const INTAKE_SKIPPED = "__skipped__";
+
+export function isSkippedValue(value: unknown): boolean {
+  return value === INTAKE_SKIPPED;
 }
 
 class IntakeEngine implements IIntakeEngine {
@@ -49,6 +61,9 @@ class IntakeEngine implements IIntakeEngine {
   }
 
   answer(state: IntakeState, key: string, value: unknown): IntakeState {
+    if (isSkippedValue(value)) {
+      throw new Error("Skipped answers must go through skip(), never answer().");
+    }
     const nextAnswers = { ...state.answers, [key]: value };
     // if category answered, refilter questions
     let nextQuestions = state.questions;
@@ -68,6 +83,28 @@ class IntakeEngine implements IIntakeEngine {
     };
   }
 
+  /**
+   * Record a skip for the given question key. The sentinel counts as
+   * "answered" so the flow always terminates; progress stays clamped to
+   * [0, totalSteps] and can never exceed the true question count.
+   */
+  skip(state: IntakeState, key: string): IntakeState {
+    if (key in state.answers) return state;
+    return this.recordSkipped({ ...state }, key);
+  }
+
+  private recordSkipped(state: IntakeState, key: string): IntakeState {
+    const nextAnswers = { ...state.answers, [key]: INTAKE_SKIPPED };
+    const answeredCount = Object.keys(nextAnswers).length;
+    const completed = this.canComplete({ ...state, answers: nextAnswers });
+    return {
+      ...state,
+      answers: nextAnswers,
+      currentStep: Math.min(answeredCount, state.questions.length),
+      completed,
+    };
+  }
+
   canComplete(state: IntakeState): boolean {
     const required = state.questions.filter((q) => q.required);
     return required.every((q) => q.key in state.answers && state.answers[q.key] !== "" && state.answers[q.key] !== undefined);
@@ -75,10 +112,18 @@ class IntakeEngine implements IIntakeEngine {
 
   summarize(state: IntakeState): string {
     const parts: string[] = [];
-    if (state.answers["what_happened"]) parts.push(String(state.answers["what_happened"]));
-    if (state.answers["amount_involved"]) parts.push(`Amount involved: ₹${state.answers["amount_involved"]}`);
-    if (state.answers["incident_date"]) parts.push(`Date: ${state.answers["incident_date"]}`);
-    if (state.answers["opposing_party"]) parts.push(`Other party: ${state.answers["opposing_party"]}`);
+    const said = (key: string): string | null => {
+      const v = state.answers[key];
+      if (v === undefined || v === null || v === "" || isSkippedValue(v)) return null;
+      return String(v);
+    };
+    const what = said("what_happened");
+    if (what) parts.push(what);
+    if (state.answers["amount_involved"] !== undefined && !isSkippedValue(state.answers["amount_involved"])) parts.push(`Amount involved: ₹${state.answers["amount_involved"]}`);
+    const when = said("incident_date");
+    if (when) parts.push(`Date: ${when}`);
+    const who = said("opposing_party");
+    if (who) parts.push(`Other party: ${who}`);
     return parts.join(" • ") || "No details yet — tell us what happened in your own words.";
   }
 

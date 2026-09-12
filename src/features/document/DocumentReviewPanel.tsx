@@ -18,6 +18,8 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
   const [ocrBusy, setOcrBusy] = useState<Record<string, boolean>>({});
   const [ocrProgress, setOcrProgress] = useState<Record<string, number>>({});
   const [ocrError, setOcrError] = useState<Record<string, string | undefined>>({});
+  // Double-confirm guard: confirming twice must not duplicate evidence/facts.
+  const [confirming, setConfirming] = useState<Record<string, boolean>>({});
   const [conflictModal, setConflictModal] = useState<{
     doc: DocumentUpload;
     confirmed: DocumentExtractedFact[];
@@ -133,6 +135,8 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
   const handleConfirm = async (doc: DocumentUpload, onlySelected: boolean) => {
     const res = results[doc.id];
     if (!res || res.facts.length === 0) return;
+    if (confirming[doc.id]) return;
+    setConfirming((p) => ({ ...p, [doc.id]: true }));
     let factsToConfirm = res.facts;
     if (onlySelected) {
       const sel = selected[doc.id];
@@ -151,11 +155,15 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
     const confirmed = factsToConfirm.map((f) => ({ ...f, confirmedByUser: true, confirmedAt: new Date().toISOString(), confirmationSource: "document_review" as const }));
     // Conflict handling — require user choice
     const { conflicts: found } = await documentFactMergeService.proposeMerge(kase.id, confirmed);
-    if (found.length > 0) {
-      setConflictModal({ doc, confirmed, conflicts: found, res });
-      return;
+    try {
+      if (found.length > 0) {
+        setConflictModal({ doc, confirmed, conflicts: found, res });
+        return;
+      }
+      await finalizeConfirmation(doc, confirmed, res);
+    } finally {
+      setConfirming((p) => ({ ...p, [doc.id]: false }));
     }
-    await finalizeConfirmation(doc, confirmed, res);
   };
 
   const finalizeConfirmation = async (
@@ -163,7 +171,10 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
     confirmed: DocumentExtractedFact[],
     res: NonNullable<typeof results[string]>
   ) => {
-    await documentFactMergeService.applyConfirmedFacts(kase.id, confirmed);
+    if (confirming[doc.id]) return;
+    setConfirming((p) => ({ ...p, [doc.id]: true }));
+    try {
+      await documentFactMergeService.applyConfirmedFacts(kase.id, confirmed);
 
     // Deduplication: evidenceService handles duplicate-safe (same type+label)
     await evidenceService.addEvidence({
@@ -198,6 +209,9 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
     const fresh = await caseEngine.getCase(kase.id);
     if (fresh) onUpdate(fresh);
     setConflictModal(null);
+    } finally {
+      setConfirming((p) => ({ ...p, [doc.id]: false }));
+    }
   };
 
   const handleEditChange = (docId: string, field: string, value: string) => {
@@ -444,11 +458,11 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
                 </div>
 
                 <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                  <button className="btn btn--primary btn--sm" onClick={() => handleConfirm(doc, false)} disabled={res.facts.length === 0}>
-                    Confirm all safe facts
+                  <button className="btn btn--primary btn--sm" onClick={() => handleConfirm(doc, false)} disabled={res.facts.length === 0 || confirming[doc.id]}>
+                    {confirming[doc.id] ? "Confirming…" : "Confirm all safe facts"}
                   </button>
-                  <button className="btn btn--secondary btn--sm" onClick={() => handleConfirm(doc, true)} disabled={!selected[doc.id] || selected[doc.id].size === 0}>
-                    Confirm selected facts
+                  <button className="btn btn--secondary btn--sm" onClick={() => handleConfirm(doc, true)} disabled={!selected[doc.id] || selected[doc.id].size === 0 || confirming[doc.id]}>
+                    {confirming[doc.id] ? "Confirming…" : "Confirm selected facts"}
                   </button>
                   <button className="btn btn--secondary btn--sm" onClick={() => handleKeepAsEvidence(doc)}>
                     Keep as evidence without confirmation

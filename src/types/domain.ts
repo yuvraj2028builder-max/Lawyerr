@@ -919,6 +919,8 @@ export interface ConsumerIntakeState {
   createdAt: ISODateString;
   updatedAt: ISODateString;
   isDemo?: boolean;
+  /** Set once createCaseFromIntake runs: repeat confirms return the same case. */
+  createdCaseId?: ID;
 }
 
 // ─── API shapes ───────────────────────────────────────────────────────────────

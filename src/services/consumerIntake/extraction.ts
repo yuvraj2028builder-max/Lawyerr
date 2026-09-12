@@ -111,7 +111,9 @@ export function extractSeller(text: string): ExtractionResult<string> | null {
     if (lower.includes(s)) {
       const idx = lower.indexOf(s);
       const raw = text.slice(idx, idx + s.length);
-      return { value: s, raw, confidence: s === "shop" || s === "store" || s === "seller" ? "inferred" : "explicit" };
+      // Preserve the user's own casing for display ("Amazon", not "amazon").
+      // Matching stays case-insensitive; only the stored value keeps its case.
+      return { value: raw, raw, confidence: s === "shop" || s === "store" || s === "seller" ? "inferred" : "explicit" };
     }
   }
   // Hinglish: "Amazon se" pattern
@@ -129,7 +131,7 @@ export function extractSeller(text: string): ExtractionResult<string> | null {
   // Pattern "from <Seller>" / "on <Seller>"
   const m2 = text.match(/(?:from|on)\s+([A-Z][a-z]+)/);
   if (m2) {
-    return { value: m2[1].toLowerCase(), raw: m2[1], confidence: "inferred" };
+    return { value: m2[1], raw: m2[1], confidence: "inferred" };
   }
   return null;
 }
@@ -265,6 +267,11 @@ export function extractPurchaseDate(text: string): { date?: ExtractionResult<str
   const daysAgoMatch = lower.match(/(\d+)\s+days?\s+ago/);
   if (daysAgoMatch) {
     return { relative: { value: `${daysAgoMatch[1]} days ago`, raw: daysAgoMatch[0], confidence: "ambiguous" } };
+  }
+  // Spelled-out number words ("five days ago") — keep the user's own wording.
+  const wordMatch = lower.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty)\s+days?\s+ago/);
+  if (wordMatch) {
+    return { relative: { value: wordMatch[0], raw: wordMatch[0], confidence: "ambiguous" } };
   }
   const hinglishWeek = lower.match(/(\d+)\s+din\s+mein/);
   if (hinglishWeek) {

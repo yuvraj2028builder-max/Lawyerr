@@ -127,10 +127,19 @@ a:hover { text-decoration: underline; }
 
 /* Utilities */
 .stack { display: flex; flex-direction: column; }
-.row { display: flex; align-items: center; }
+.row { display: flex; align-items: center; flex-wrap: wrap; }
 .grid { display: grid; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
 .divider { height: 1px; background: var(--color-border); border: 0; margin: 0; }
+
+/* Small screens (375px class): never force horizontal overflow. Rows wrap
+ * instead of clipping; cards break long legal text/URLs instead of spilling. */
+.card { overflow-wrap: break-word; }
+.card pre { max-width: 100%; overflow-x: auto; }
+@media (max-width: 480px) {
+  .container { width: calc(100% - 24px); }
+  .btn--lg { padding: 12px 18px; }
+}
 
 /* Animations reduced motion */
 @media (prefers-reduced-motion: reduce) {

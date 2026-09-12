@@ -44,6 +44,13 @@ const en: Dict = {
   "footer.privacy": "Privacy",
   "footer.terms": "Terms",
   "footer.contact": "Contact",
+  "footer.neverAsk": "We never ask for Aadhaar or bank passwords",
+  "footer.journey": "Problem → Understand → Verify → Act",
+  "footer.madeFor": "Made for everyday Indians.",
+  "footer.close": "Close",
+  "footer.privacyBody": "NyayaSetu works without an account. What you type and upload stays in this browser (local demo mode) unless you explicitly save it to an online account. We never ask for Aadhaar, bank passwords, card numbers, OTPs, or PINs. You can delete your case anytime; clearing browser data removes local copies, including uploaded file bytes. Complaint drafts are prepared for your review only — nothing is filed or sent automatically. NyayaSetu is not a law firm and provides general information, not legal advice.",
+  "footer.termsTitle": "Terms of use",
+  "footer.termsBody": "NyayaSetu provides general legal information for consumer grievances in India — not legal advice and not a lawyer-client relationship. AI features can make mistakes; verify important steps with a qualified lawyer or your District Legal Services Authority (DLSA). Do not rely on action plans or deadlines without checking them. Do not submit false information anywhere. By using this demo you accept that your data is stored locally in your browser as described in the Privacy note.",
 };
 
 const hi: Dict = {
@@ -88,6 +95,13 @@ const hi: Dict = {
   "footer.privacy": "प्राइवेसी",
   "footer.terms": "शर्तें",
   "footer.contact": "संपर्क",
+  "footer.neverAsk": "हम आधार या बैंक पासवर्ड कभी नहीं माँगते",
+  "footer.journey": "समस्या → समझें → जाँचें → कदम उठाएँ",
+  "footer.madeFor": "आम भारतीयों के लिए बनाया गया।",
+  "footer.close": "बंद करें",
+  "footer.privacyBody": "न्यायसेतु बिना खाते के काम करता है। आप जो लिखते या अपलोड करते हैं वह इसी ब्राउज़र में रहता है (लोकल डेमो मोड), जब तक आप खुद ऑनलाइन खाते में सेव न करें। हम आधार, बैंक पासवर्ड, कार्ड नंबर, OTP या PIN कभी नहीं माँगते। आप अपना केस कभी भी हटा सकते हैं; ब्राउज़र डेटा साफ़ करने से लोकल प्रतियाँ हट जाती हैं। शिकायत का मसौदा सिर्फ आपकी समीक्षा के लिए बनता है — कुछ भी अपने आप दाखिल या भेजा नहीं जाता। न्यायसेतु लॉ फर्म नहीं है और सिर्फ सामान्य जानकारी देता है, कानूनी सलाह नहीं।",
+  "footer.termsTitle": "उपयोग की शर्तें",
+  "footer.termsBody": "न्यायसेतु भारत में उपभोक्ता शिकायतों के लिए सामान्य कानूनी जानकारी देता है — कानूनी सलाह नहीं, और वकील-मुवक्किल संबंध नहीं बनता। AI सुविधाएँ गलती कर सकती हैं; महत्वपूर्ण कदम अपने वकील या जिला विधिक सेवा प्राधिकरण (DLSA) से जाँचें। एक्शन प्लान या समय-सीमा पर बिना जाँचे भरोसा न करें। कहीं भी गलत जानकारी न दें। इस डेमो का उपयोग करके आप स्वीकार करते हैं कि आपका डेटा प्राइवेसी नोट के अनुसार आपके ब्राउज़र में रखा जाता है।",
 };
 
 export const dictionaries: Record<Language, Dict> = { en, hi };

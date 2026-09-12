@@ -16,7 +16,7 @@ export function Header({ onNavigateHome }: { onNavigateHome?: () => void }) {
         borderBottom: "1px solid var(--color-border)",
       }}
     >
-      <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
+      <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", rowGap: 8, columnGap: 12, minHeight: 64, paddingTop: 8, paddingBottom: 8 }}>
         <button
           onClick={onNavigateHome}
           style={{

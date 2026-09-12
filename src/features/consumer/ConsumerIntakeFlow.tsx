@@ -22,6 +22,8 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
   const [showSummary, setShowSummary] = useState(false);
   const [correctionField, setCorrectionField] = useState<string | null>(null);
   const [correctionInput, setCorrectionInput] = useState("");
+  // Double-confirm guard: creating the case twice must be impossible.
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     const s = consumerIntakeEngine.createSession();
@@ -112,6 +114,8 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
 
   const handleConfirm = async () => {
     if (!sessionId || !state) return;
+    if (confirming) return;
+    setConfirming(true);
     try {
       const s = consumerIntakeEngine.confirm(sessionId);
       usabilityObservationService.record({ event: "step_completed", step: "confirm_facts" });
@@ -153,6 +157,8 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
       onCaseReady?.(c.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create case");
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -261,8 +267,8 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
           )}
 
           <div className="row" style={{ gap: 8, marginTop: 16, flexWrap: "wrap" }}>
-            <button className="btn btn--primary" onClick={handleConfirm}>
-              {lang === "hi" ? "हाँ, आगे बढ़ें" : "Yes, continue"} →
+            <button className="btn btn--primary" onClick={handleConfirm} disabled={confirming}>
+              {confirming ? (lang === "hi" ? "केस बनाया जा रहा है…" : "Creating your case…") : (lang === "hi" ? "हाँ, आगे बढ़ें" : "Yes, continue")} {!confirming && "→"}
             </button>
             <button className="btn btn--secondary" onClick={() => { setShowSummary(false); setState({ ...state, status: "collecting" }); }}>
               {lang === "hi" ? "कुछ गलत है" : "Something is wrong"}

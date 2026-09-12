@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense, useRef } from "react";
 import { Hero } from "@/features/hero/Hero";
 import { EntryPoints } from "@/features/entry/EntryPoints";
 import { IntakeCard } from "@/features/intake/IntakeCard";
@@ -8,13 +8,26 @@ import { Disclaimer } from "@/components/common/Disclaimer";
 import { DemoBadge } from "@/components/ui/Badge";
 import { ErrorState } from "@/components/common/ErrorState";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
+import { shouldShowLegalNoticeWarning } from "@/services/escalation.service";
 import { useLanguage } from "@/context/LanguageContext";
 import { useCase } from "@/context/CaseContext";
 import { intakeEngine } from "@/services/intakeEngine.service";
+import {
+  answerIntakeQuestion,
+  assertIntakeCaseBinding,
+  beginIntakeFromPrompt,
+  completeIntake,
+  skipIntakeQuestion,
+} from "@/services/legacyIntakeFlow.service";
+import {
+  clearIntakeDraft,
+  loadIntakeDraft,
+  saveIntakeDraft,
+  shouldOfferResume,
+  summarizeDraft,
+  type IntakeDraft,
+} from "@/services/intakeDraftStore.service";
 import { caseEngine } from "@/services/caseEngine.service";
-import { actionPlanService } from "@/services/actionPlan.service";
-import { escalationService } from "@/services/escalation.service";
-import { legalKnowledgeService } from "@/services/legalKnowledge.service";
 import type { IntakeState } from "@/types/domain";
 import { demoCase } from "@/data/demoFixtures";
 
@@ -28,141 +41,116 @@ const BelowFoldFallback = () => <div className="container small muted" style={{ 
 
 export function Router() {
   const { lang } = useLanguage();
-  const { currentCase, setCurrentCase, createCase } = useCase();
+  const { currentCase, setCurrentCase } = useCase();
   const [view, setView] = useState<View>("landing");
   const [intake, setIntake] = useState<IntakeState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Saved in-progress draft (refresh survival). Offered explicitly, never auto-applied.
+  const [savedDraft, setSavedDraft] = useState<IntakeDraft | null>(null);
+  // Race guard: concurrent submits (double-tap, Enter+click, sample-tap
+  // mid-submit) must never interleave two cases into one flow.
+  const busyRef = useRef(false);
+  // Double-Continue guard: one answer submission at a time per flow.
+  const answeringRef = useRef(false);
 
   const startFromPrompt = useCallback(
     async (prompt: string) => {
+      if (busyRef.current) return;
+      busyRef.current = true;
       setError(null);
       setBusy(true);
       try {
-        const { category, confidence } = intakeEngine.inferCategory(prompt);
-        const c = await createCase(prompt, prompt.slice(0, 60));
-        // enrich
-        await caseEngine.updateCase(c.id, {
-          problemCategory: category,
-          problemCategoryConfidence: confidence,
-          facts: [{ id: "f_what", key: "what_happened", label: "What happened", value: prompt, source: "user", confidence: null, verified: true }],
-        });
-        const updated = await caseEngine.getCase(c.id);
-        if (!updated) throw new Error("Case not found");
-        setCurrentCase(updated);
-
-        // start intake
-        const state = intakeEngine.start(c.id, category);
-        // pre-answer what_happened
-        const next = intakeEngine.answer(state, "what_happened", prompt);
-        if (category) {
-          const withCat = intakeEngine.answer(next, "problem_category", category);
-          setIntake(withCat);
-        } else {
-          setIntake(next);
-        }
+        // ONE canonical capture: prompt text -> case + intake, atomically.
+        const { intake: state, kase } = await beginIntakeFromPrompt(prompt);
+        setCurrentCase(kase);
+        setIntake(state);
         setView("intake");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Something went wrong");
       } finally {
         setBusy(false);
+        busyRef.current = false;
       }
     },
-    [createCase, setCurrentCase]
+    [setCurrentCase]
+  );
+
+  const finishIntake = useCallback(
+    async (state: IntakeState) => {
+      setBusy(true);
+      try {
+        // Case is loaded by intake.caseId inside completeIntake — a stale
+        // selected case can never supply the wrong description.
+        const done = await completeIntake(state);
+        setCurrentCase(done);
+        clearIntakeDraft();
+        setSavedDraft(null);
+        setView("workspace");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not prepare your plan");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [setCurrentCase]
   );
 
   const handleIntakeAnswer = useCallback(
     async (value: unknown) => {
       if (!intake || !currentCase) return;
-      const q = intakeEngine.nextQuestion(intake);
-      if (!q) return;
-      const next = intakeEngine.answer(intake, q.key, value);
-      // persist fact
+      if (answeringRef.current) return;
+      answeringRef.current = true;
       try {
-        await caseEngine.addFact(currentCase.id, {
-          key: q.key,
-          label: q.question,
-          value: value as never,
-          source: "user",
-          confidence: null,
-          verified: true,
-        });
-        // also patch money if amount
-        if (q.key === "amount_involved" && typeof value === "number") {
-          await caseEngine.updateCase(currentCase.id, { money: { amount: value, currency: "INR", context: "amount involved" } });
-        }
-      } catch {
-        // ignore
-      }
-
-      if (intakeEngine.nextQuestion(next) === null || next.completed) {
-        // complete -> generate analysis/action/escalation (mock)
-        setBusy(true);
+        // Hard binding: this intake state belongs to exactly one case.
         try {
-          const fresh = await caseEngine.getCase(currentCase.id);
-          if (!fresh) throw new Error("Case missing");
-          // Real retrieval — shows structure, never fabricates. Synthetic fixtures are marked isMock.
-          const legal = await legalKnowledgeService.search({ query: fresh.description, topK: 3 });
-          const plan = await actionPlanService.generate({ case: fresh });
-          const esc = await escalationService.assess(fresh);
-          const withAnalysis = await caseEngine.updateCase(fresh.id, {
-            status: "action_ready",
-            actionPlan: plan,
-            escalation: esc,
-            analysis: {
-              id: `analysis_${Date.now()}`,
-              caseId: fresh.id,
-              createdAt: new Date().toISOString(),
-              summary: legal.note ?? "We understood your situation. Here's a careful next-steps plan.",
-              whatWeUnderstood: [fresh.description.slice(0, 120)],
-              whatIsMissing: next.questions.filter((qq) => !(qq.key in next.answers)).map((qq) => qq.question),
-              relevantLaw: legal.claims,
-              risks: esc.reasons,
-              nextQuestions: [],
-              confidence: legal.confidence,
-              isMock: legal.isMock,
-              disclaimer: legal.disclaimer,
-            },
-            deadlines: fresh.deadlines,
-            evidence: fresh.evidence.length
-              ? fresh.evidence
-              : [
-                  { id: "ev_auto_1", caseId: fresh.id, title: "Your written description", description: "What you just told us", status: "have" as const },
-                  { id: "ev_auto_2", caseId: fresh.id, title: "Any agreement / receipt", description: "If you have it, keep it safe", status: "missing" as const, howToObtain: "Take a photo and keep in one folder" },
-                ],
-          });
-          setCurrentCase(withAnalysis);
-          setView("workspace");
+          assertIntakeCaseBinding(intake, currentCase.id);
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Could not prepare your plan");
-        } finally {
-          setBusy(false);
+          setError(e instanceof Error ? e.message : "Case mismatch");
+          return;
         }
-      } else {
-        setIntake(next);
-        const refreshed = await caseEngine.getCase(currentCase.id);
-        if (refreshed) setCurrentCase(refreshed);
+        const q = intakeEngine.nextQuestion(intake);
+        if (!q) {
+          await finishIntake(intake);
+          return;
+        }
+        const next = await answerIntakeQuestion(intake, q.key, value);
+        if (intakeEngine.nextQuestion(next) === null || next.completed) {
+          await finishIntake(next);
+        } else {
+          setIntake(next);
+          const refreshed = await caseEngine.getCase(next.caseId);
+          if (refreshed) setCurrentCase(refreshed);
+        }
+      } finally {
+        answeringRef.current = false;
       }
     },
-    [intake, currentCase, setCurrentCase]
+    [intake, currentCase, setCurrentCase, finishIntake]
   );
 
   const skipIntake = useCallback(async () => {
     if (!intake || !currentCase) return;
-    const q = intakeEngine.nextQuestion(intake);
-    if (!q) return;
-    // simple skip: move step forward
-    const advanced: IntakeState = { ...intake, currentStep: intake.currentStep + 1 };
-    // check if done
-    if (intakeEngine.nextQuestion(advanced) === null) {
-      // finish
-      setIntake(advanced);
-      // generate plan same as above
-      handleIntakeAnswer("__skipped__");
+    try {
+      assertIntakeCaseBinding(intake, currentCase.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Case mismatch");
       return;
     }
-    setIntake(advanced);
-  }, [intake, currentCase, handleIntakeAnswer]);
+    const q = intakeEngine.nextQuestion(intake);
+    if (!q) {
+      await finishIntake(intake);
+      return;
+    }
+    // Skip records a sentinel answer: the machine always advances to a
+    // genuinely different question, and progress can never exceed total.
+    const next = skipIntakeQuestion(intake, q.key);
+    if (intakeEngine.nextQuestion(next) === null || next.completed) {
+      await finishIntake(next);
+      return;
+    }
+    setIntake(next);
+  }, [intake, currentCase, finishIntake]);
 
   const showDemo = useCallback(async () => {
     // seed demo into engine
@@ -176,7 +164,46 @@ export function Router() {
     setIntake(null);
     setCurrentCase(null);
     setError(null);
+    clearIntakeDraft();
+    setSavedDraft(null);
   }, [setCurrentCase]);
+
+  // Persist the in-progress flow so a refresh can offer resume. Runs only
+  // while the intake view is active; completion/reset clear the draft.
+  useEffect(() => {
+    if (view === "intake" && intake && currentCase) {
+      saveIntakeDraft(currentCase, intake);
+    }
+  }, [view, intake, currentCase]);
+
+  // On landing with no active flow, offer an explicit resume of a saved draft.
+  useEffect(() => {
+    if (view === "landing" && !intake) {
+      setSavedDraft(loadIntakeDraft());
+    } else {
+      setSavedDraft(null);
+    }
+  }, [view, intake]);
+
+  const resumeDraft = useCallback(() => {
+    const draft = loadIntakeDraft();
+    if (!draft) {
+      setSavedDraft(null);
+      return;
+    }
+    // Rehydrate the in-memory case store (it does not survive refresh),
+    // then continue exactly where the user left off.
+    caseEngine.__seed([draft.kase]);
+    setCurrentCase(draft.kase);
+    setIntake(draft.intake);
+    setSavedDraft(null);
+    setView("intake");
+  }, [setCurrentCase]);
+
+  const discardDraft = useCallback(() => {
+    clearIntakeDraft();
+    setSavedDraft(null);
+  }, []);
 
   // Intake view
   if (view === "intake" && intake && currentCase) {
@@ -189,16 +216,29 @@ export function Router() {
             ← {lang === "hi" ? "पीछे" : "Back"}
           </button>
 
+          {shouldShowLegalNoticeWarning(intake, currentCase.problemCategory) && (
+            <div role="alert" style={{ padding: "12px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10 }}>
+              <strong className="small" style={{ display: "block", color: "#991b1b" }}>
+                {lang === "hi" ? "⚠️ यह कानूनी नोटिस/कोर्ट का मामला लगता है — पहले इसे पढ़ें" : "⚠️ This looks like a legal notice or court matter — read this first"}
+              </strong>
+              <p className="small" style={{ margin: "6px 0 0", color: "#7f1d1d", lineHeight: 1.6 }}>
+                {lang === "hi"
+                  ? "नोटिस का जवाब देने की समय-सीमा कम हो सकती है। जल्द से जल्द किसी वकील या DLSA से बात करें, और नोटिस तारीखों सहित संभालकर रखें। आप नीचे जारी रख सकते हैं — यह कानूनी सलाह नहीं है।"
+                  : "Reply windows can be short. Talk to a lawyer or your DLSA quickly, and keep the notice with its dates safe. You can still continue below — this is not legal advice."}
+              </p>
+            </div>
+          )}
+
           <div className="card" style={{ padding: 16, background: "var(--color-primary)", color: "#fff" }}>
             <div className="tiny" style={{ opacity: 0.85, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 700 }}>
               {lang === "hi" ? "समझते हैं" : "We’re understanding your situation"}
             </div>
             <div className="row" style={{ gap: 8, marginTop: 8 }}>
               <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.25)", borderRadius: 999 }}>
-                <div style={{ width: `${Math.round((intake.currentStep / Math.max(1, intake.totalSteps)) * 100)}%`, height: "100%", background: "#fff", borderRadius: 999 }} />
+                <div style={{ width: `${Math.round((Math.min(intake.currentStep, intake.totalSteps) / Math.max(1, intake.totalSteps)) * 100)}%`, height: "100%", background: "#fff", borderRadius: 999 }} />
               </div>
               <span className="tiny" style={{ opacity: 0.9 }}>
-                {intake.currentStep}/{intake.totalSteps}
+                {Math.min(intake.currentStep, intake.totalSteps)}/{intake.totalSteps}
               </span>
             </div>
             <p className="small" style={{ margin: "10px 0 0", opacity: 0.9, lineHeight: 1.5 }}>
@@ -209,7 +249,7 @@ export function Router() {
           {error && <ErrorState title="Something went wrong" message={error} onRetry={() => setError(null)} />}
 
           {q ? (
-            <IntakeCard question={q} onAnswer={handleIntakeAnswer} onSkip={q.required ? undefined : skipIntake} />
+            <IntakeCard key={q.id} question={q} onAnswer={handleIntakeAnswer} onSkip={q.required ? undefined : skipIntake} />
           ) : (
             <div className="card" style={{ padding: 20, textAlign: "center" }}>
               <p style={{ fontWeight: 600 }}>{busy ? (lang === "hi" ? "तैयार कर रहे हैं…" : "Preparing your plan…") : lang === "hi" ? "धन्यवाद — आपका सारांश तैयार है" : "Thanks — your summary is ready"}</p>
@@ -252,6 +292,21 @@ export function Router() {
     <ErrorBoundary>
     <div>
       <Hero onSubmit={startFromPrompt} />
+      {shouldOfferResume(view, intake !== null, savedDraft) && savedDraft && (
+        <div className="container" style={{ paddingTop: 16 }}>
+          <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span className="small" style={{ color: "#1e40af", flex: 1, minWidth: 200 }}>
+              You have an unfinished case: {summarizeDraft(savedDraft)}
+            </span>
+            <button className="btn btn--primary btn--sm" onClick={resumeDraft}>
+              {lang === "hi" ? "जारी रखें" : "Resume"}
+            </button>
+            <button className="btn btn--ghost btn--sm" onClick={discardDraft}>
+              {lang === "hi" ? "हटाएं" : "Discard"}
+            </button>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="container" style={{ paddingTop: 16 }}>
           <ErrorState title="We couldn't start your case" message={error} onRetry={() => setError(null)} />

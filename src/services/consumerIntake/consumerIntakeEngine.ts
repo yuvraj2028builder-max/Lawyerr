@@ -711,6 +711,14 @@ export class ConsumerIntakeEngine {
     if (state.facts.productOrService) {
       const amt = state.facts.amountPaid ? ` for ${formatMoney(state.facts.amountPaid)}` : "";
       parts.push(`You bought ${state.facts.productOrService}${amt}${state.facts.sellerOrProvider ? ` from ${state.facts.sellerOrProvider}` : ""}.`);
+      // Timing detail must survive as a reviewable fact (audit: "five days
+      // ago" was silently dropped). Prefer an exact date, else the user's
+      // own relative wording — never invent a calendar date from it.
+      if (state.facts.purchaseDate) {
+        parts.push(`Purchase date: ${state.facts.purchaseDate}.`);
+      } else if (state.facts.relativeDateMention) {
+        parts.push(`Timing you mentioned: ${state.facts.relativeDateMention}.`);
+      }
     } else if (state.facts.problemDescription) {
       parts.push(state.facts.problemDescription);
     }
@@ -738,10 +746,16 @@ export class ConsumerIntakeEngine {
     return parts.join(" ") || state.userNarrative || "No summary yet.";
   }
 
-  /** Create a Case from ready intake */
+  /** Create a Case from ready intake. Idempotent: a repeat confirm for the
+   *  same session returns the already-created case instead of duplicating it
+   *  (double-clicking confirm must never create two cases). */
   async createCaseFromIntake(sessionId: string, _userId = "local_user"): Promise<import("@/types/domain").Case> {
     const state = this.sessions.get(sessionId);
     if (!state) throw new Error("Session not found");
+    if (state.createdCaseId) {
+      const existing = await caseEngine.getCase(state.createdCaseId);
+      if (existing) return existing;
+    }
     if (state.status !== "ready" && state.status !== "complete") {
       throw new Error(`Intake not ready: ${state.status}`);
     }
@@ -782,6 +796,9 @@ export class ConsumerIntakeEngine {
     } catch {
       // non-fatal
     }
+    state.createdCaseId = c.id;
+    state.updatedAt = nowIso();
+    this.sessions.set(sessionId, state);
     return (await caseEngine.getCase(c.id))!;
   }
 

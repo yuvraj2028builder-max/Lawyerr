@@ -5,11 +5,57 @@
  * Considers: severity, deadlines, criminal/civil, amount, complexity, docs, uncertainty.
  */
 
-import type { Case, EscalationAssessment, EscalationLevel } from "@/types/domain";
+import type { Case, EscalationAssessment, EscalationLevel, IntakeState } from "@/types/domain";
 import { DEMO_DISCLAIMER } from "@/data/demoFixtures";
 
 export interface IEscalationService {
   assess(kase: Case): Promise<EscalationAssessment>;
+}
+
+/**
+ * Bug-fix #4 — start-of-flow urgency detection for legal-notice/court input.
+ *
+ * The completion-time escalation already flagged these, but nothing warned
+ * at the START of the legacy intake. Any input matching the legal/court
+ * family (English, Hinglish, Hindi) must surface a human-review message
+ * before the user continues the normal flow.
+ */
+const URGENT_LEGAL_PATTERNS: RegExp[] = [
+  /legal\s+notice/i,
+  /advocate/i,
+  /lawyer\s+(notice|sent|letter|sued)/i,
+  /\bcourt\b/i,
+  /summons/i,
+  /hearing/i,
+  /case\s+filed/i,
+  /vakil/i,
+  /notice\s+(received|mila|aaya|aya)/i,
+  /(received|got|mila|aaya|aya)\s+(a\s+)?notice/i,
+  /reply\s+to\s+(a\s+|the\s+)?notice/i,
+  /court\s+notice/i,
+  /notis/i, // common Hinglish misspelling of notice
+  /नोटिस/,
+  /समन/,
+  /कोर्ट/,
+  /अदालत/,
+  /सुनवाई/,
+  /वकील/,
+];
+
+const ORDINARY_NOISE_GUARD = /notice\s+board/i;
+
+export function isUrgentLegalNoticeText(text: unknown): boolean {
+  if (typeof text !== "string" || !text.trim()) return false;
+  if (ORDINARY_NOISE_GUARD.test(text)) return false;
+  return URGENT_LEGAL_PATTERNS.some((p) => p.test(text));
+}
+
+/** Banner condition for the legacy intake view: canonical complaint text or inferred category. */
+export function shouldShowLegalNoticeWarning(intake: Pick<IntakeState, "answers">, problemCategory?: string | null): boolean {
+  if (problemCategory === "legal_notice") return true;
+  const said = intake.answers["what_happened"];
+  if (typeof said !== "string" || said === "__skipped__") return false;
+  return isUrgentLegalNoticeText(said);
 }
 
 function levelFromSignals(kase: Case): { level: EscalationLevel; reasons: string[] } {

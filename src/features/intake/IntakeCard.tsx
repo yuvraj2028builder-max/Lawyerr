@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLanguage } from "@/context/LanguageContext";
 import type { IntakeQuestion } from "@/types/domain";
 
@@ -14,6 +14,14 @@ export function IntakeCard({
   const { lang } = useLanguage();
   const [text, setText] = useState("");
   const [num, setNum] = useState("");
+
+  // Belt and suspenders with key={question.id} at call sites: whenever the
+  // question changes, prior typed input is discarded so a stale answer can
+  // never be submitted for a different question.
+  useEffect(() => {
+    setText("");
+    setNum("");
+  }, [question.id]);
 
   const qText = lang === "hi" && question.questionHi ? question.questionHi : question.question;
 
@@ -36,7 +44,7 @@ export function IntakeCard({
         </div>
         {!question.required && onSkip && (
           <button className="btn btn--ghost btn--sm" style={{ marginTop: 8 }} onClick={onSkip}>
-            Skip
+            {lang === "hi" ? "छोड़ें" : "Skip"}
           </button>
         )}
       </div>
@@ -56,7 +64,7 @@ export function IntakeCard({
           </button>
           {!question.required && onSkip && (
             <button className="btn btn--ghost" onClick={onSkip}>
-              Skip
+              {lang === "hi" ? "छोड़ें" : "Skip"}
             </button>
           )}
         </div>
@@ -91,7 +99,7 @@ export function IntakeCard({
         </div>
         {!question.required && onSkip && (
           <button className="btn btn--ghost btn--sm" style={{ marginTop: 8 }} onClick={onSkip}>
-            Skip
+            {lang === "hi" ? "छोड़ें" : "Skip"}
           </button>
         )}
       </div>
@@ -106,7 +114,7 @@ export function IntakeCard({
           <input className="input" type="date" onChange={(e) => e.target.value && onAnswer(e.target.value)} style={{ flex: 1 }} />
           {!question.required && onSkip && (
             <button className="btn btn--ghost" onClick={onSkip}>
-              Skip
+              {lang === "hi" ? "छोड़ें" : "Skip"}
             </button>
           )}
         </div>
@@ -132,7 +140,7 @@ export function IntakeCard({
       <div className="row" style={{ gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
         {!question.required && onSkip && (
           <button className="btn btn--ghost" onClick={onSkip}>
-            Skip
+            {lang === "hi" ? "छोड़ें" : "Skip"}
           </button>
         )}
         <button className="btn btn--primary" disabled={question.required && !text.trim()} onClick={() => onAnswer(text.trim())}>
