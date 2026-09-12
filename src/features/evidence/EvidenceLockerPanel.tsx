@@ -24,6 +24,10 @@ export function EvidenceLockerPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
   const [selectedType, setSelectedType] = useState<EvidenceType>("invoice_receipt");
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
+  // Per-item toggle guard: without it a rapid double-click flips
+  // missing→available→missing and the user sees no change at all.
+  const [toggling, setToggling] = useState<Record<string, boolean>>({});
+  const [toggleError, setToggleError] = useState<Record<string, string | undefined>>({});
 
   const refresh = async () => {
     // caseEngine is source of truth, but parent will refresh via onUpdate
@@ -52,9 +56,20 @@ export function EvidenceLockerPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
   };
 
   const handleToggle = async (id: string, current: string) => {
-    const next = current === "available" ? "missing" : "available";
-    await evidenceService.updateEvidence(kase.id, id, { status: next as never });
-    await refresh();
+    if (toggling[id]) return;
+    setToggling((p) => ({ ...p, [id]: true }));
+    setToggleError((p) => ({ ...p, [id]: undefined }));
+    try {
+      const next = current === "available" ? "missing" : "available";
+      await evidenceService.updateEvidence(kase.id, id, { status: next as never });
+      await refresh();
+    } catch (e) {
+      setToggleError((p) => ({ ...p, [id]: e instanceof Error ? e.message : "Could not update. Try again." }));
+      // Re-read anyway: the status write may have persisted before the failure.
+      try { await refresh(); } catch { /* ignore */ }
+    } finally {
+      setToggling((p) => ({ ...p, [id]: false }));
+    }
   };
 
   const handleRemove = async (id: string) => {
@@ -103,9 +118,12 @@ export function EvidenceLockerPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
                 <span className="tiny muted" style={{ lineHeight: 1.4 }}>{TYPE_LABEL[ev.type ?? "other"]} • {ev.source === "uploaded" ? "Uploaded file" : "You said you have this"} • {ev.status === "available" ? "Available" : ev.status}</span>
                 {ev.fileName && <span className="tiny muted" style={{ display: "block" }}>{ev.fileName} • {ev.mimeType ?? ""}</span>}
               </span>
-              <button className="btn btn--ghost btn--sm" onClick={() => handleToggle(ev.id, ev.status)} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>
-                {ev.status === "available" || ev.status === "have" ? "Mark missing" : "Mark available"}
+              <button className="btn btn--ghost btn--sm" onClick={() => handleToggle(ev.id, ev.status)} disabled={!!toggling[ev.id]} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>
+                {toggling[ev.id] ? "Saving…" : ev.status === "available" || ev.status === "have" ? "Mark missing" : "Mark available"}
               </button>
+              {toggleError[ev.id] && (
+                <span className="tiny" role="alert" style={{ display: "block", color: "#991b1b", marginTop: 4 }}>{toggleError[ev.id]}</span>
+              )}
               <button className="btn btn--ghost btn--sm" onClick={() => handleRemove(ev.id)} aria-label="Remove evidence" style={{ color: "#991b1b", fontSize: "0.75rem", padding: "4px 8px" }}>
                 ×
               </button>

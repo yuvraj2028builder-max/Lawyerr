@@ -6,7 +6,7 @@
  * No sample text, no stale textarea value, no cross-case pairing, no
  * skip sentinel persisted as a fact.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { intakeEngine, INTAKE_SKIPPED } from "@/services/intakeEngine.service";
 import {
   answerIntakeQuestion,
@@ -333,7 +333,179 @@ describe("Fix #5 — wrong-domain routing and contradiction detection work", () 
   });
 });
 
-// ─── DOM: stale textarea must reset when the question changes ────────────────
+// ─── Finding 2: rental-template contamination is structurally impossible ────
+// Root cause: the legacy mock planner hardcoded rental wording for EVERY
+// category. Fixed with per-category content + an insufficient-facts gate.
+
+const RENTAL_VOCAB = ["rent agreement", "rent receipt", "tenancy", "landlord", "when you left", "moved out", "evict"];
+
+function planText(plan: { summary: string; items: Array<{ title: string; description: string }> }): string {
+  return `${plan.summary} ${plan.items.map((i) => `${i.title} ${i.description}`).join(" ")}`.toLowerCase();
+}
+
+describe("Finding 2 — no rental language in non-tenancy plans (matrix)", () => {
+  it("legacy planner: every problem category × sparse and rich input stays clean unless tenancy", async () => {
+    const { actionPlanService } = await import("@/services/actionPlan.service");
+    const categories = ["consumer_complaint", "security_deposit", "rent_dispute", "salary_delay", "cheque_bounce", "legal_notice", "other", null] as const;
+    const descriptions = {
+      label: "Defective or damaged product",
+      vague: "Company cheated me",
+      complete: "Bought a mixer grinder for Rs 8000 last month, it stopped working in a week, seller refuses refund",
+    };
+    for (const category of categories) {
+      for (const [kind, description] of Object.entries(descriptions)) {
+        const kase = await caseEngine.createCase({ description, problemCategory: category });
+        const plan = await actionPlanService.generate({ case: kase });
+        const text = planText(plan);
+        const tenancyCategory = category === "security_deposit" || category === "rent_dispute";
+        const leaked = RENTAL_VOCAB.filter((w) => text.includes(w));
+        if (tenancyCategory) {
+          // Tenancy wording is legitimate ONLY here — and the plan still builds.
+          expect(plan.items.length).toBeGreaterThan(0);
+        } else {
+          expect(leaked, `${category}/${kind} leaked: ${leaked.join(",")}`).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it("consumer planner: every issue type × empty/vague/complete input stays clean", async () => {
+    const { consumerActionPlanService } = await import("@/services/actionEngine/consumerActionPlan.service");
+    const issueTypes = ["defective_product", "not_delivered", "refund_denied", "refund_delayed", "warranty_issue", "service_not_provided", "poor_service", "misleading_representation", "ecommerce_dispute", "cancellation_dispute", "overcharging", "unfair_contract", "other"] as const;
+    const factSets = {
+      empty: {},
+      vague: { problemDescription: "Company cheated me" },
+      complete: { productOrService: "phone", sellerOrProvider: "Acme", amountPaid: { amount: 25000, currency: "INR" as const }, problemDescription: "Arrived defective, refund refused", sellerResponse: "refused" },
+    };
+    for (const issue of issueTypes) {
+      for (const [kind, facts] of Object.entries(factSets)) {
+        const plan = await consumerActionPlanService.generate({
+          caseId: `matrix_${issue}_${kind}`,
+          facts: facts as never,
+          issueTypes: [issue] as never,
+          evidenceTypes: [],
+          desiredOutcomes: [],
+          verifiedPassages: [],
+        });
+        const text = planText(plan);
+        const leaked = RENTAL_VOCAB.filter((w) => text.includes(w));
+        expect(leaked, `${issue}/${kind} leaked: ${leaked.join(",")}`).toEqual([]);
+      }
+    }
+  });
+
+  it("category-card-only sparse flow yields needs_information, never action-ready", async () => {
+    const { intake } = await beginIntakeFromPrompt("Defective or damaged product").then(async ({ intake }) => {
+      let state = intake;
+      for (;;) {
+        const q = intakeEngine.nextQuestion(state);
+        if (!q) break;
+        state = skipIntakeQuestion(state, q.key);
+      }
+      return { intake: state };
+    });
+    const done = await completeIntake(intake);
+    expect(done.status).toBe("intake");
+    expect(done.actionPlan?.status).toBe("needs_information");
+    expect(done.actionPlan?.summary.toLowerCase()).toContain("not enough information");
+  });
+
+  it("gate stays open for real narratives even when everything is skipped", async () => {
+    let { intake: state } = await beginIntakeFromPrompt("I received a legal notice from the court about a hearing next month please help");
+    for (;;) {
+      const q = intakeEngine.nextQuestion(state);
+      if (!q) break;
+      state = skipIntakeQuestion(state, q.key);
+    }
+    const done = await completeIntake(state);
+    expect(done.status).toBe("action_ready");
+  });
+
+  it("gate stays open when the user answered at least one real question", async () => {
+    const { intake: started } = await beginIntakeFromPrompt("Refund refused");
+    let state = started;
+    for (;;) {
+      const q = intakeEngine.nextQuestion(state);
+      if (!q) break;
+      state = q.key === "opposing_party"
+        ? await answerIntakeQuestion(state, q.key, "Acme Traders")
+        : skipIntakeQuestion(state, q.key);
+    }
+    const done = await completeIntake(state);
+    expect(done.status).toBe("action_ready");
+  });
+});
+
+// ─── Finding 1 (audit path): full landing→intake drive in a real Router ─────
+// The service tests above prove the data path; this proves the exact user
+// path the auditors walked, including that no sample text sits in any
+// intake-styled field at any point.
+
+describe("Finding 1 — audit path end to end in the live Router", () => {
+  it("hero text reaches intake with zero sample text anywhere on screen", async () => {
+    const React = await import("react");
+    const { act } = React;
+    const { createRoot } = await import("react-dom/client");
+    const App = (await import("@/App")).default;
+
+    // Hermetic: even with a developer .env.local present, this flow stays local.
+    vi.stubEnv("VITE_SUPABASE_URL", "");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+    try {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      await act(async () => {
+        root.render(React.createElement(App));
+      });
+      // Let lazy below-fold panels resolve — the demo textarea must be
+      // present before asserting anything about prefilled content. Poll
+      // with a deadline instead of a fixed sleep (suite load varies).
+      const textareas = () => Array.from(container.querySelectorAll("textarea")).map((t) => ({ id: t.id, value: (t as HTMLTextAreaElement).value }));
+      const deadline = Date.now() + 8000;
+      while (textareas().length < 3 && Date.now() < deadline) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+      }
+
+      // Landing: no textarea anywhere may contain sample/complaint text.
+      const before = textareas();
+      expect(before.length).toBeGreaterThan(0);
+      expect(before.map((t) => t.id).sort()).toEqual(["consumer-input", "hero-input", "narrative"]);
+      for (const t of before) {
+        expect(t.value, `#${t.id} prefilled`).toBe("");
+      }
+
+      // Audit path: type a unique complaint in the HERO input and submit it.
+      const unique = `right-side bedroom wall seepage-${Date.now()}-${Math.random().toString(36).slice(2)} landlord ignoring calls`;
+      const hero = container.querySelector("#hero-input") as HTMLTextAreaElement;
+      expect(hero).not.toBeNull();
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+        setter.call(hero, unique);
+        hero.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const form = hero.closest("form")!;
+      await act(async () => {
+        form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      });
+
+      // Intake view: the summary card carries the exact complaint…
+      expect(container.textContent).toContain(unique);
+      // …and no visible textarea carries sample or stale text.
+      const during = textareas();
+      for (const t of during) {
+        expect(t.value.includes("₹25,000 phone"), `#${t.id} shows sample`).toBe(false);
+      }
+
+      await act(async () => { root.unmount(); });
+      container.remove();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
 
 describe("Fix #1 — intake textarea never carries stale text across questions", () => {
   it("typing for Q1 then moving to Q2 clears the input", async () => {
@@ -386,5 +558,23 @@ describe("Fix #1 — intake textarea never carries stale text across questions",
 
     await act(async () => { root.unmount(); });
     container.remove();
+  });
+});
+
+// ─── Medium: Hindi summary in the category-only flow ─────────────────────────
+
+describe("Medium — legacy summary speaks the selected language", () => {
+  it("Hindi summary uses Hindi labels and no English fragments", () => {
+    let state = intakeEngine.start("c1", "consumer_complaint");
+    state = intakeEngine.answer(state, "incident_date", "2026-08-10");
+    state = intakeEngine.answer(state, "opposing_party", "Acme");
+    const hi = intakeEngine.summarize(state, "hi");
+    expect(hi).toContain("तारीख:");
+    expect(hi).toContain("दूसरी पार्टी:");
+    expect(hi).not.toContain("Date:");
+    expect(hi).not.toContain("Other party:");
+    const en = intakeEngine.summarize(state, "en");
+    expect(en).toContain("Date:");
+    expect(en).not.toContain("तारीख:");
   });
 });

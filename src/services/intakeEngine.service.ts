@@ -12,7 +12,7 @@ export interface IIntakeEngine {
   answer(state: IntakeState, key: string, value: unknown): IntakeState;
   skip(state: IntakeState, key: string): IntakeState;
   canComplete(state: IntakeState): boolean;
-  summarize(state: IntakeState): string;
+  summarize(state: IntakeState, lang?: "en" | "hi"): string;
   inferCategory(freeText: string): { category: ProblemCategory | null; confidence: number };
 }
 
@@ -110,7 +110,7 @@ class IntakeEngine implements IIntakeEngine {
     return required.every((q) => q.key in state.answers && state.answers[q.key] !== "" && state.answers[q.key] !== undefined);
   }
 
-  summarize(state: IntakeState): string {
+  summarize(state: IntakeState, lang: "en" | "hi" = "en"): string {
     const parts: string[] = [];
     const said = (key: string): string | null => {
       const v = state.answers[key];
@@ -119,12 +119,14 @@ class IntakeEngine implements IIntakeEngine {
     };
     const what = said("what_happened");
     if (what) parts.push(what);
-    if (state.answers["amount_involved"] !== undefined && !isSkippedValue(state.answers["amount_involved"])) parts.push(`Amount involved: ₹${state.answers["amount_involved"]}`);
+    if (state.answers["amount_involved"] !== undefined && !isSkippedValue(state.answers["amount_involved"])) {
+      parts.push(lang === "hi" ? `शामिल राशि: ₹${state.answers["amount_involved"]}` : `Amount involved: ₹${state.answers["amount_involved"]}`);
+    }
     const when = said("incident_date");
-    if (when) parts.push(`Date: ${when}`);
+    if (when) parts.push(lang === "hi" ? `तारीख: ${when}` : `Date: ${when}`);
     const who = said("opposing_party");
-    if (who) parts.push(`Other party: ${who}`);
-    return parts.join(" • ") || "No details yet — tell us what happened in your own words.";
+    if (who) parts.push(lang === "hi" ? `दूसरी पार्टी: ${who}` : `Other party: ${who}`);
+    return parts.join(" • ") || (lang === "hi" ? "अभी कोई विवरण नहीं — अपने शब्दों में बताइए क्या हुआ।" : "No details yet — tell us what happened in your own words.");
   }
 
   inferCategory(freeText: string): { category: ProblemCategory | null; confidence: number } {

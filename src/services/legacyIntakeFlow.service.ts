@@ -107,6 +107,25 @@ export function skipIntakeQuestion(intake: IntakeState, key: string): IntakeStat
 }
 
 /**
+ * Insufficient-facts gate (Finding 2.4). A category label alone ("Defective
+ * or damaged product") plus zero real answers is not a plannable case.
+ * Returns true only when: description is short AND no non-pre-answer exists
+ * AND no money/evidence/extra facts were captured. Skips never count.
+ */
+export function isFactSparseForPlanning(kase: Case, intake: IntakeState): boolean {
+  const descWords = kase.description.trim().split(/\s+/).filter(Boolean).length;
+  if (descWords >= 10) return false;
+  const realAnswers = Object.entries(intake.answers).filter(
+    ([k, v]) => k !== "what_happened" && k !== "problem_category" && v !== undefined && v !== null && v !== "" && !isSkippedValue(v)
+  );
+  if (realAnswers.length > 0) return false;
+  if (kase.money) return false;
+  if (kase.evidence.length > 0) return false;
+  if (kase.facts.some((f) => f.key !== "what_happened")) return false;
+  return true;
+}
+
+/**
  * Finish the flow: loads the case BY intake.caseId (never a UI closure),
  * generates grounded analysis/plan/escalation from its description, and
  * returns the updated case. Skipped answers are excluded from whatIsMissing
@@ -115,6 +134,12 @@ export function skipIntakeQuestion(intake: IntakeState, key: string): IntakeStat
 export async function completeIntake(intake: IntakeState): Promise<Case> {
   const fresh = await caseEngine.getCase(intake.caseId);
   if (!fresh) throw new Error("Case missing");
+  // Sparse input (e.g. category-card label only, everything skipped) must
+  // NOT produce an action-ready plan. Show "not enough information" instead.
+  if (isFactSparseForPlanning(fresh, intake)) {
+    const sparsePlan = await actionPlanService.generateNeedsInformation({ case: fresh });
+    return caseEngine.updateCase(fresh.id, { status: "intake", actionPlan: sparsePlan });
+  }
   const legal = await legalKnowledgeService.search({ query: fresh.description, topK: 3 });
   const plan = await actionPlanService.generate({ case: fresh });
   const esc = await escalationService.assess(fresh);

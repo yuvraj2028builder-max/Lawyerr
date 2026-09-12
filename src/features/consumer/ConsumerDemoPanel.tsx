@@ -8,7 +8,10 @@ import { Disclaimer } from "@/components/common/Disclaimer";
 
 export function ConsumerDemoPanel() {
   const { lang } = useLanguage();
-  const [input, setInput] = useState(CONSUMER_SCENARIOS[0].description);
+  // Intentionally EMPTY on mount: pre-filling sample text into an
+  // intake-styled field made sample complaints indistinguishable from user
+  // input (audit Finding 1). Samples remain one tap away via "Try:" buttons.
+  const [input, setInput] = useState("");
   const [result, setResult] = useState<FindRelevantConsumerLawResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

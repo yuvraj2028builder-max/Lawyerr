@@ -192,6 +192,77 @@ describe("Minor M5 — small-screen safeguards present", () => {
   });
 });
 
+// ─── Medium: evidence toggle visibly flips, exactly once ────────────────────
+
+describe("Medium — evidence toggle feedback", () => {
+  it("Mark available flips to available; a second click mid-flight is ignored", async () => {
+    const React = await import("react");
+    const { act } = React;
+    const { createRoot } = await import("react-dom/client");
+    const { LanguageProvider } = await import("@/context/LanguageContext");
+    const { EvidenceLockerPanel } = await import("@/features/evidence/EvidenceLockerPanel");
+    const { caseEngine } = await import("@/services/caseEngine.service");
+    const { evidenceService } = await import("@/services/evidence.service");
+    const { vi } = await import("vitest");
+    (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+
+    const kase = await caseEngine.createCase({ description: "toggle probe" });
+    await evidenceService.addEvidence({ caseId: kase.id, type: "invoice_receipt", label: "Bill", status: "missing" });
+
+    // Hold the first toggle in flight so the second click lands mid-flight.
+    let releaseUpdate!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseUpdate = resolve; });
+    const realUpdate = evidenceService.updateEvidence.bind(evidenceService);
+    const spy = vi.spyOn(evidenceService, "updateEvidence").mockImplementationOnce(async (...args) => {
+      await gate;
+      return realUpdate(...args);
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let latest = (await caseEngine.getCase(kase.id))!;
+    const renderLatest = () => {
+      root.render(
+        React.createElement(LanguageProvider, null,
+          React.createElement(EvidenceLockerPanel, {
+            kase: latest,
+            onUpdate: (c: typeof latest) => {
+              latest = c;
+              renderLatest();
+            },
+          }))
+      );
+    };
+    await act(async () => { renderLatest(); });
+    const findToggle = () =>
+      Array.from(container.querySelectorAll("button")).find((b) =>
+        b.textContent === "Mark available" || b.textContent === "Mark missing" || b.textContent === "Saving…");
+    try {
+      expect(findToggle()?.textContent).toBe("Mark available");
+
+      act(() => { findToggle()!.click(); });
+      await act(async () => { await Promise.resolve(); });
+      // Mid-flight: visible Saving state on a disabled button.
+      expect(findToggle()?.textContent).toBe("Saving…");
+      expect(findToggle()?.disabled).toBe(true);
+      // Second physical click: disabled buttons ignore .click(), exactly
+      // like a real browser — the audit's zero-net-change cannot happen.
+      act(() => { findToggle()!.click(); });
+      releaseUpdate();
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(findToggle()?.textContent).toBe("Mark missing");
+      expect((await caseEngine.getCase(kase.id))?.evidence.find((e) => e.label === "Bill")?.status).toBe("available");
+    } finally {
+      spy.mockRestore();
+      await act(async () => { root.unmount(); });
+      container.remove();
+    }
+  });
+});
+
 // ─── M1: Privacy/Terms links open real content ──────────────────────────────
 
 describe("Minor M1 — footer links lead somewhere real", () => {

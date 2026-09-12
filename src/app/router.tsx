@@ -242,7 +242,7 @@ export function Router() {
               </span>
             </div>
             <p className="small" style={{ margin: "10px 0 0", opacity: 0.9, lineHeight: 1.5 }}>
-              {intakeEngine.summarize(intake)}
+              {intakeEngine.summarize(intake, lang)}
             </p>
           </div>
 
@@ -253,7 +253,7 @@ export function Router() {
           ) : (
             <div className="card" style={{ padding: 20, textAlign: "center" }}>
               <p style={{ fontWeight: 600 }}>{busy ? (lang === "hi" ? "तैयार कर रहे हैं…" : "Preparing your plan…") : lang === "hi" ? "धन्यवाद — आपका सारांश तैयार है" : "Thanks — your summary is ready"}</p>
-              <p className="small muted">{intakeEngine.summarize(intake)}</p>
+              <p className="small muted">{intakeEngine.summarize(intake, lang)}</p>
             </div>
           )}
 
