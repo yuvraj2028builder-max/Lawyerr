@@ -121,11 +121,6 @@ export class AiFactProposalService {
       }
     }
 
-    // Mark as confirmed
-    prop.status = "confirmed";
-    prop.confirmedByUser = true;
-    prop.reviewedAt = new Date().toISOString();
-
     // Map to DocumentExtractedFact format for documentFactMergeService
     const confirmedFact: DocumentExtractedFact = {
       field: prop.field,
@@ -134,11 +129,18 @@ export class AiFactProposalService {
       source: "document_text",
       rawText: prop.extractedSnippet,
       confirmedByUser: true,
-      confirmedAt: prop.reviewedAt,
+      confirmedAt: new Date().toISOString(),
       confirmationSource: "document_review",
     };
 
+    // Commit to the case FIRST. The proposal is marked confirmed only after
+    // the case update succeeds — never report confirmation on failure.
     await documentFactMergeService.applyConfirmedFacts(caseId, [confirmedFact]);
+
+    // Mark as confirmed
+    prop.status = "confirmed";
+    prop.confirmedByUser = true;
+    prop.reviewedAt = confirmedFact.confirmedAt;
 
     return {
       proposal: prop,
@@ -182,7 +184,17 @@ export class AiFactProposalService {
       confirmationSource: "document_review",
     };
 
-    await documentFactMergeService.applyConfirmedFacts(caseId, [confirmedFact]);
+    // Commit first; on failure roll the proposal back to "proposed" so the
+    // UI never shows a modified proposal that did not reach the case.
+    try {
+      await documentFactMergeService.applyConfirmedFacts(caseId, [confirmedFact]);
+    } catch (e) {
+      prop.status = "proposed";
+      prop.userModifiedValue = undefined;
+      prop.confirmedByUser = false;
+      prop.reviewedAt = undefined;
+      throw e;
+    }
 
     return {
       proposal: prop,

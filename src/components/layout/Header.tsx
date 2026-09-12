@@ -1,5 +1,6 @@
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
+import { LOCAL_DEMO_MESSAGE } from "@/backend/authProvider";
 
 export function Header({ onNavigateHome }: { onNavigateHome?: () => void }) {
   const { lang, setLang, t } = useLanguage();
@@ -56,7 +57,7 @@ export function Header({ onNavigateHome }: { onNavigateHome?: () => void }) {
         </button>
 
         <div className="row" style={{ gap: 12 }}>
-          <span className="tiny" title={auth.mode === "development" ? "Your data is limited to this browser and is not a private cloud account." : "Authentication status"} style={{ padding: "6px 10px", borderRadius: 999, background: "#fff7ed", color: "#9a3412", border: "1px solid #fed7aa", fontWeight: 700 }}>
+          <span className="tiny" title={LOCAL_DEMO_MESSAGE} style={{ padding: "6px 10px", borderRadius: 999, background: "#fff7ed", color: "#9a3412", border: "1px solid #fed7aa", fontWeight: 700 }}>
             {auth.status === "authenticated" ? "Authenticated account" : "Local demo mode"}
           </span>
           <div

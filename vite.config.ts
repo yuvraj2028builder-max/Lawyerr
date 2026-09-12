@@ -15,9 +15,18 @@ export default defineConfig({
     },
   },
   build: {
+    // Initial-bundle budget: heavy PDF libs stay in lazy chunks (see report in README).
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       // pdfjs-dist and tesseract.js are optional lazy-loaded deps — do not fail build if not installed
       external: (id) => id === "pdfjs-dist" || id === "tesseract.js",
+      output: {
+        // Safe caching split only: React vendor in its own chunk. No
+        // functionality is removed or deferred by this change.
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+        },
+      },
     },
   },
   server: {

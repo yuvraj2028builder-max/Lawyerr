@@ -28,8 +28,12 @@ export function isSafeAnalyticsPayload(payload: AnalyticsPayload): boolean {
   return !["signed", "token", "password", "ocr", "document_text", "complaint", "data:", "<script"].some((term) => serialized.includes(term));
 }
 
-// No-op for now — privacy preserving, no third-party tracking
-export function trackEvent(_payload: AnalyticsPayload): void {
+// No-op for now — privacy preserving, no third-party tracking.
+// Prompt 14: the guard is enforced here so that if a pipeline is ever wired
+// up, unsafe payloads are dropped instead of sent. Returns false when dropped.
+export function trackEvent(_payload: AnalyticsPayload): boolean {
   // Intentionally not sending to GA or any external service
   // For local dev, could console.debug in dev only without PII
+  if (!isSafeAnalyticsPayload(_payload)) return false;
+  return true;
 }

@@ -1,5 +1,65 @@
 # NyayaSetu — Architecture (Prompt 1 + 2 + 3 + 4 + 5 + 6 + 7)
 
+## Prompt 13 secure backend foundation (contracts real, backend not connected)
+
+`src/backend/` is the typed backend foundation. `backendTypes.ts` defines
+`BackendStatus` (`available|unavailable|not_configured|unauthorized|`
+`forbidden|not_found|failed`), the `BackendResult<T>` envelope, session /
+identity shapes, and owner-scoped database contracts (`DbUserProfile`,
+`DbCase`, `DbCaseMember`, `DbDocumentMetadata`, `DbExtractedFact`,
+`DbConfirmedFact`, `DbActionPlan`, `DbActionItem`, `DbAuditEvent`,
+`DbAiProposal` — every private record carries `ownerId`/`userId`).
+`authProvider.ts` defines `AuthProvider`
+(`getSession`/`signIn`/`signOut`/`onAuthStateChange`) with
+`LocalDemoAuthProvider` (always unauthenticated, exact message
+“Local demo mode — your data is saved only in this browser.”) and
+`UnavailableCloudAuthProvider`; neither creates fake users, tokens,
+sessions, or privacy claims. `backendConfig.ts` exposes only public
+(`VITE_`) config and reports honest `local_demo` unavailability when env is
+missing. `authorization.ts` fails closed in fixed order
+(unavailable → unauthorized → not_found → forbidden → available) and never
+returns private metadata/bytes before `available`.
+`backendProvider.ts` + `documentStorage.ts` + `adapters.ts`
+(`UnavailableBackendAdapter`, `SupabaseBackendSeam`) cover health, session,
+identity, case CRUD, ownership, document metadata, upload permission,
+signed download, audit, and owner-scoped plan/fact/proposal reads — all
+returning explicit statuses, never fabricated success.
+`analyticsGuard.ts` blocks document bytes/text, Aadhaar, PAN, passwords,
+API keys, credentials, tokens, signed material, and owner ids from
+telemetry, and flags sending document text to unavailable providers.
+Gemini is not activated; no live AI calls exist.
+
+**Backend and database ownership rules are the real security boundary.
+Frontend authorization checks are UX hints only** (`FRONTEND_AUTHZ_IS_UX_ONLY`).
+The app resolves to `UnavailableBackendAdapter` in `local_demo` mode
+(`BACKEND_CONNECTED=false`, `AUTH_IS_REAL=false`,
+`PRIVATE_STORAGE_IS_REAL=false`); local intake/plan/evidence/review/draft/
+PDF flows keep working while cloud-only operations report
+`unavailable`/`not_configured`.
+
+Bundle: main entry 455.69 kB → 367.64 kB via vendor chunk + lazy
+below-fold landing panels (`ConsumerIntakeFlow`, `ConsumerDemoPanel`);
+document/complaint panels were already lazy and jspdf/pdfjs/html2canvas/
+dompurify were already lazy chunks. No functionality removed.
+
+## Prompt 14 production-readiness audit (no backend, no live calls)
+
+New: `backend/authMode.ts` (single auth-mode source of truth,
+`isAuthenticatedBackendSession`, `toLegacyAuthSession`), `backend/legalSafety.ts`
+(`canDisplayAsVerifiedClaim`, `canDisplayDeadline`,
+`requireExplicitConfirmation` + plain-language labels). Extended:
+`backend/authorization.ts` (`isWellFormedId`, `isRecordOwnedBy`,
+`requireOwnedRecord`, `authorizeRouteAccess`), `backend/analyticsGuard.ts`
+(`isSafeAnalyticsMeta`, `shouldSendAnalyticsEvent`, `findForbiddenEnvKeys`),
+`services/analytics.ts` (`trackEvent` enforces the guard and reports
+drops), `context/AuthContext.tsx` (derives from the backend provider,
+adds `useAuthActions`), `services/ai/aiFactProposal.service.ts`
+(confirm/modify mark success only after the case commit, with rollback).
+No screen requires auth today (all data is local-demo); the route seam
+fails closed for future protected screens. Audit confirmed: no fetch/XHR/
+WebSocket in `src`, no frontend secrets, id-only error messages, honest
+verified/test-verified/unverified and draft-not-submitted wording.
+
 ## Prompt 9 security boundary
 
 `auth.service.ts` supplies a development-only, unavailable authentication adapter. It never produces a fake signed-in private account. `authorization.service.ts` fails closed because frontend checks cannot protect remote data; a backend must enforce ownership.

@@ -10,6 +10,80 @@ NyayaSetu helps an ordinary Indian understand a legal / problem situation and ta
 
 ---
 
+## Prompt 14: production-readiness audit (no cloud, no live calls, demo intact)
+
+An audit of `src/backend`, `src/services` (including the AI boundary),
+contexts, router, components, and config found the architecture honest but
+added six bounded hardening fixes: (1) a single source of truth for auth
+mode (`src/backend/authMode.ts` — demo state can never map to
+"authenticated"; `AuthContext` derives from the backend provider and exposes
+`useAuthActions` for complete sign-in/sign-out behavior); (2) centralized
+ownership primitives (`isWellFormedId`, `isRecordOwnedBy`,
+`requireOwnedRecord`) plus a fail-closed protected-route seam
+(`authorizeRouteAccess`) since the local case store takes bare ids;
+(3) precise analytics guards (`isSafeAnalyticsMeta`,
+`shouldSendAnalyticsEvent`, `findForbiddenEnvKeys`) — the legacy guard
+missed keys like owner id, email, PAN, and OTP — with enforcement inside
+`trackEvent`; (4) centralized legal-display guards
+(`src/backend/legalSafety.ts`: verified-claim, deadline, and explicit-AI-
+confirmation gates plus plain-language suggestion/draft labels);
+(5) a real ordering fix in `aiFactProposalService` — proposals are now
+marked confirmed/modified only after the case update succeeds, with rollback
+on failure, so a failed confirmation is never reported as success;
+(6) verified honest error, loading, and wording behavior (no false filing or
+submission claims; verified/test-verified/unverified badges kept).
+
+Verified clean: zero live network calls in `src` (no fetch/XHR/WebSocket),
+no secrets in frontend code, error messages carry opaque ids only, and all
+local flows (intake, action plan, evidence, document review, complaint
+draft, PDF export) still work in demo mode.
+
+## Prompt 13: secure backend foundation (contracts real, backend not connected)
+
+> **Local demo mode — your data is saved only in this browser.**
+
+`src/backend/` now defines the typed backend foundation: `BackendProvider`
+(health, session lookup, identity, case CRUD, ownership checks, document
+metadata, upload permission, signed download, audit events, owner-scoped
+reads for action plans/items, extracted/confirmed facts, AI proposals),
+`AuthProvider` (`getSession`/`signIn`/`signOut`/`onAuthStateChange`) with
+`LocalDemoAuthProvider` and `UnavailableCloudAuthProvider`, owner-scoped
+database contracts (profiles, cases, case members, document metadata,
+extracted/confirmed facts, action plans/items, audit events, AI proposals),
+fail-closed authorization (`unauthorized` → `forbidden` → `not_found`),
+a private-storage contract (private bucket only, opaque server-generated
+keys, short-lived signed URLs, none in local demo), a safe public-only env
+config layer, an `UnavailableBackendAdapter`, and a `SupabaseBackendSeam`
+integration-test seam that never fabricates a connected state.
+
+**Security boundary:** backend and database ownership rules are the real
+security boundary. Frontend authorization checks are UX hints only and must
+never be trusted with private data. Every private record carries an
+owner/user identifier at the backend contract level. No document bytes,
+document text, Aadhaar, PAN, passwords, API keys, or credentials go into
+analytics. Gemini is NOT activated: no live AI calls exist; document text is
+never sent to unavailable providers.
+
+**Honest status:** no real backend is connected, authentication is
+unavailable (local demo only), private storage is unavailable, and no
+secret exists in frontend code. Missing configuration yields an honest
+“backend unavailable” state, never a crash. All local workflows (intake,
+action plan, evidence metadata, document review, complaint draft, PDF
+export) keep working in local demo mode; cloud-only operations report
+`unavailable`/`not_configured`.
+
+**Bundle review (Prompt 13):** the ~741 kB figure could not be reproduced —
+measured main entry was **455.69 kB** (gzip 132.26 kB) before this prompt.
+The largest libraries (jspdf ~391 kB, pdfjs-dist ~365 + ~410 kB,
+html2canvas ~202 kB, dompurify ~29 kB) were already lazy-loaded chunks, not
+initial load. This prompt additionally code-split the below-fold landing
+panels (`ConsumerIntakeFlow` 52.43 kB, `ConsumerDemoPanel` 12.84 kB) and a
+React vendor chunk (12.58 kB), bringing the main entry to **367.64 kB**
+(gzip 109.00 kB) with zero functionality removed. Remaining duplication:
+two pdfjs-dist import specifiers produce two lazy pdf chunks — kept
+deliberately for jsdom/legacy compatibility; safe to dedupe once a single
+tested specifier covers all environments.
+
 ## Prompt 9: private-storage foundation (not configured)
 
 NyayaSetu currently runs in **Local demo mode**. Data is limited to this browser and is not an authenticated private-cloud account. The app has typed authentication, authorization, private-document, signed-upload/download, and backend API contracts, but no account provider, backend, private bucket, or signed URL issuer is connected.

@@ -1,10 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, lazy, Suspense } from "react";
 import { Hero } from "@/features/hero/Hero";
 import { EntryPoints } from "@/features/entry/EntryPoints";
 import { IntakeCard } from "@/features/intake/IntakeCard";
 import { CaseWorkspace } from "@/features/case/CaseWorkspace";
-import { ConsumerDemoPanel } from "@/features/consumer/ConsumerDemoPanel";
-import { ConsumerIntakeFlow } from "@/features/consumer/ConsumerIntakeFlow";
 import { Disclaimer } from "@/components/common/Disclaimer";
 import { DemoBadge } from "@/components/ui/Badge";
 import { ErrorState } from "@/components/common/ErrorState";
@@ -19,6 +17,12 @@ import type { IntakeState } from "@/types/domain";
 import { demoCase } from "@/data/demoFixtures";
 
 type View = "landing" | "intake" | "workspace" | "demo";
+
+// Below-fold landing panels are code-split: same functionality, loaded in
+// parallel with the initial paint instead of inside the main bundle.
+const ConsumerDemoPanel = lazy(() => import("@/features/consumer/ConsumerDemoPanel").then((m) => ({ default: m.ConsumerDemoPanel })));
+const ConsumerIntakeFlow = lazy(() => import("@/features/consumer/ConsumerIntakeFlow").then((m) => ({ default: m.ConsumerIntakeFlow })));
+const BelowFoldFallback = () => <div className="container small muted" style={{ padding: "12px 0" }}>Loading…</div>;
 
 export function Router() {
   const { lang } = useLanguage();
@@ -255,6 +259,7 @@ export function Router() {
       )}
       <EntryPoints onSelect={startFromPrompt} />
 
+      <Suspense fallback={<BelowFoldFallback />}>
       <ConsumerIntakeFlow
         onCaseReady={async (caseId) => {
           const c = await caseEngine.getCase(caseId);
@@ -266,6 +271,7 @@ export function Router() {
       />
 
       <ConsumerDemoPanel />
+      </Suspense>
 
       {/* Trust / privacy strip */}
       <section className="container" style={{ padding: "24px 0 0" }}>
