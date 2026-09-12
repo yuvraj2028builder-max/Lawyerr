@@ -519,6 +519,11 @@ export class ConsumerActionPlanService {
     const prev = item.status;
     item.status = status;
     item.updatedAt = new Date().toISOString();
+    if (status === "done") {
+      item.completedAt = new Date().toISOString();
+    } else {
+      delete item.completedAt;
+    }
     plan.updatedAt = new Date().toISOString();
     try {
       const isCompleted = status === "done" && prev !== "done";
@@ -535,6 +540,26 @@ export class ConsumerActionPlanService {
       // non-fatal
     }
     return plan;
+  }
+
+  async generateForCase(kase: import("@/types/domain").Case): Promise<ActionPlan> {
+    const { ensureLegalCorpusInitialized } = await import("@/services/legal/init");
+    await ensureLegalCorpusInitialized();
+    const { consumerLegalService } = await import("@/services/legal/consumer/consumerLegal.service");
+    const problemText = kase.consumerFacts?.problemDescription || kase.description || kase.title || "";
+    const legal = await consumerLegalService.findRelevantConsumerLaw({
+      userProblem: problemText,
+      onlyProductionAllowed: true,
+    });
+    return this.generate({
+      caseId: kase.id,
+      facts: kase.consumerFacts ?? {},
+      issueTypes: kase.consumerIssueTypes && kase.consumerIssueTypes.length > 0 ? kase.consumerIssueTypes : ["defective_product"],
+      evidenceTypes: kase.consumerFacts?.evidenceTypes ?? [],
+      desiredOutcomes: kase.consumerFacts?.desiredOutcomes ?? [],
+      verifiedPassages: legal.passages,
+      isDemo: kase.isDemo,
+    });
   }
 }
 

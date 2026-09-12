@@ -21,11 +21,15 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    host: "0.0.0.0",
+    port: 3000,
+    allowedHosts: true,
   },
-  test: {
-    globals: true,
-    environment: "jsdom",
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
-  } as unknown as Record<string, unknown>,
+  ...({
+    test: {
+      globals: true,
+      environment: "jsdom",
+      include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    },
+  } as Record<string, unknown>),
 });

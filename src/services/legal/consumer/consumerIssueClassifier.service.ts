@@ -16,7 +16,7 @@ export interface ClassificationResult {
 const RULES: Array<{ type: ConsumerIssueType; keywords: string[]; confidence: number }> = [
   { type: "defective_product", keywords: ["defective", "damaged", "faulty", "broken", "not working", "manufacturing defect", "defect"], confidence: 0.9 },
   { type: "not_delivered", keywords: ["not delivered", "not received", "never arrived", "non-delivery", "did not deliver"], confidence: 0.9 },
-  { type: "refund_denied", keywords: ["refund denied", "refused refund", "denied refund", "refusing refund", "refusing to refund", "refuse to refund", "refusing to refund me", "not refunding", "is refusing to refund", "refusal to refund"], confidence: 0.88 },
+  { type: "refund_denied", keywords: ["refund denied", "refused refund", "refused my refund", "refused the refund", "denied refund", "denied my refund", "denied the refund", "refusing refund", "refusing to refund", "refuse to refund", "refusing to refund me", "not refunding", "is refusing to refund", "refusal to refund"], confidence: 0.88 },
   { type: "refund_delayed", keywords: ["refund delayed", "refund not received", "refund pending", "refund not arrived", "refund not credited"], confidence: 0.85 },
   { type: "warranty_issue", keywords: ["warranty", "guarantee not honoured", "warranty claim", "guarantee"], confidence: 0.82 },
   { type: "service_not_provided", keywords: ["service not provided", "service not rendered", "service not done", "not provided the service"], confidence: 0.85 },

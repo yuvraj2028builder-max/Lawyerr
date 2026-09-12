@@ -10,6 +10,7 @@ export type IntakeAnalyticsEvent =
   | "fact_extracted"
   | "fact_corrected"
   | "domain_mismatch"
+  | "question_skipped"
   | "intake_completed"
   | "intake_conflict_detected";
 

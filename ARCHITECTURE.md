@@ -8,9 +8,15 @@
 
 No privileged cloud credential, public bucket, account provider, or backend endpoint exists in this client. The threat model in `src/security/threatModel.ts` records required mitigations without claiming production security. Local demo deletion is separate from future cloud deletion; confirmed facts retain their source provenance. The retention policy is not currently configured.
 
-## Prompt 10 user-journey layer
+## Prompt 10 user-journey layer & Usability Observation
 
 `src/types/ux.ts` is a small UI contract for journey stages, a single primary action, safe statuses, recoveries, confidence labels, and the distinction between legal basis, practical steps, and user information. It deliberately translates technical service status into plain language instead of changing the underlying domain model.
+
+`src/services/usabilityObservation.service.ts` and `src/types/usability.ts` provide an in-memory observation framework:
+- **Zero PII**: Strictly rejects any payload containing names, phone numbers, email addresses, financial information, or document contents.
+- **Structured Milestones**: Tracks `scenario_started`, `step_completed`, and `action_marked_complete`.
+- **Friction Detection**: Captures `skipped` and `went_back` events to locate drop-off or confusion points.
+- **Scenario Progression**: Evaluates `nextRecommendedAction(plan)` dynamically as actions transition to `done`.
 
 The landing page and entry cards target the supported consumer-grievance vertical. The intake remains narrative-first and one question at a time. The workspace adds orientation before its progressively disclosed panels. Upload, review, evidence, and draft panels retain the underlying document and legal-safety boundaries while using user-facing recovery states. No backend/auth/cloud/OCR/Gemini or automatic filing was added in this milestone.
 

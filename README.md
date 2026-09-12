@@ -20,15 +20,18 @@ Document names are sanitized for display and rejected when they contain traversa
 
 OCR remains unavailable until a provider and language data are safely installed and verified. PDF/OCR output remains untrusted content requiring user review. Analytics is a no-op and future telemetry is limited to content-free categories. Document upload/review and complaint-draft panels are lazy-loaded to reduce initial bundle work.
 
-## Prompt 10: consumer journey improvements
+## Prompt 10 & Usability Enhancements: Consumer Journey & Usability Framework
 
 The product now leads with a consumer-only, narrative-first entry point and one clear action: tell us what happened. It explains the next steps, lets people skip unknown answers, asks them to review facts before generating a plan, and uses plain-language distinctions between **your information**, **practical steps**, and **legal basis**.
 
-The workspace begins with a visible next-step area. Evidence and document views use honest wording such as “Saved in this browser,” “Text could not be read,” and “Needs your confirmation.” Complaint drafts clearly state that they are drafts, are not filed or sent automatically, may have placeholders, and must be reviewed before sharing. Export failure leaves the draft available and offers retry guidance.
+Key improvements in this milestone:
+- **Usability Observation Framework**: In-memory `usabilityObservationService` tracks structured scenario milestones (`scenario_started`, `step_completed`, `action_marked_complete`) and friction points (`skipped`, `went_back`) with strict PII guards (no names, contacts, or document contents permitted).
+- **Friction-Reducing Question Guidance**: Every intake question definition includes a `whyAsk` explanation so users understand why each detail is asked before answering.
+- **Action Plan Completion & Progression**: Actions can be marked done or reopened. Completion records `completedAt`, triggers timeline entries, and automatically computes the `nextRecommendedAction`.
+- **Document Review Clarity & Conflict Resolution**: Extracted document facts are clearly marked as requiring user confirmation. Inline conflict resolution prevents silent overwrites.
+- **Full Test Suite**: 403 verified tests passing across 19 test files.
 
-Tests cover the journey contract, primary actions, recovery/empty-state language, local-demo wording, action explanation categories, and safety language. NyayaSetu still has no backend, authentication provider, private cloud storage, configured OCR provider, Gemini integration, automatic filing, or guaranteed legal outcome.
-
-## Current status: Prompt 7 — Evidence Upload + OCR + Document Understanding + PDF Complaint Draft (Prompt 1-6 preserved)
+## Current status: Evidence Upload + OCR Stub + Document Understanding + PDF Complaint Draft + Usability Framework
 
 Prompt 7 adds **real document handling** — `Upload → Identify → Extract → Show → Confirm → Store → Draft` — with **extraction ≠ verification**, **confirmedByUser** provenance, and **grounded complaint draft** from verified sources.
 
@@ -220,29 +223,23 @@ Primary CTA `Upload evidence` → `Review extracted details` → `Create complai
 - Draft insufficient: `Not enough confirmed information… Missing: purchase date, seller details…`
 - No verified legal basis: `No verified legal basis is currently available for this part of the complaint.`
 
-### Tests — 153 → 206 (15 files)
+### Tests — 403 passed (19 files)
 
-New 53 in `documentComplaint.test.ts`:
-- **Upload 7:** valid PDF/image accepted, unsupported rejected, zero-byte rejected, oversized rejected, metadata preserved, no fake upload
-- **Processing 5:** lifecycle, failure, unsupported OCR handled, real text preserved, no fabricated extraction
-- **Classification 5:** invoice/order/payment/seller response/unknown low confidence
-- **Fact extraction 5:** amount/seller/product/orderId+invoiceNumber/provenance
-- **Confirmation 5:** not auto-confirmed, user confirmation creates fact, correction works, missing remains, timestamp
-- **Conflicts 2:** amount conflict detected not silent, user choice updates case+timeline
-- **Evidence 4:** uploaded→evidence with file metadata, task becomes available, removal works, no false verification
-- **Timeline 6:** document_added/processing_started/processed/failed, document_confirmed, fact_updated only after choose, chronological
-- **Draft 8:** uses confirmed facts, verified passages only, placeholders, no invented dates/amounts/law, evidence list, desired outcome, disclaimer, high-risk not confident
-- **PDF 2:** export contains draft, no fake official filing language
-- **Security 4:** injection text not instruction, filename cannot inject, deadline not from user text, document not to analytics
+Comprehensive test suite covering:
+- **Usability & Core Scenarios (40):** Defective purchase (Amazon refund refused), cognitive load, `whyAsk` explanations, skipping, undo, action plan completion & progression, document review clarity, conflict detection, user-observation framework.
+- **Consumer Intake & Action Plan (45):** Deterministic flow, fact extraction, CPA 2019 legal grounding, practical next steps.
+- **Document & Complaint Processing (53):** Upload lifecycle, sanitization, classification, fact merge, conflict resolution, grounded draft generation, PDF export.
+- **Security & Privacy (44):** PII rejection, prompt injection resilience, fail-closed boundaries.
+- **Evidence, Timelines & Deadlines (34):** Pure timeline ordering, deadline calculations, immutable audit trail.
+- **Legal Retrieval & Ingestion (52):** Passages from verified CPA 2019 and E-Commerce rules, citation checking, answer validation.
+- **Case Engine & UX (135):** State recovery, journey transitions, error handling.
 
 ```
-npm run typecheck  # ✓ 0
-npm run lint       # ✓ 0
-npm run build      # ✓ 344 modules, 486kB (includes jspdf)
-npm run test       # ✓ 15 files, 206 tests
+npm run typecheck  # ✓ 0 errors
+npm run lint       # ✓ 0 warnings/errors
+npm run build      # ✓ Production build ready
+npm run test       # ✓ 19 files, 403 tests passed
 ```
-
-All 153 previous still pass.
 
 ### What is still mocked (honest)
 

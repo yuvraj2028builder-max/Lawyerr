@@ -15,6 +15,7 @@ import { caseEngine } from "@/services/caseEngine.service";
 import { RECOVERY_STATES } from "@/types/ux";
 import { JourneyStage } from "@/components/common/JourneyStage";
 import { usabilityObservationService } from "@/services/usabilityObservation.service";
+import { nextRecommendedAction } from "@/types/usability";
 
 // Document handling and PDF drafting are optional, heavier workflow panels.
 const DocumentUploadPanel = lazy(() => import("@/features/document/DocumentUploadPanel").then((m) => ({ default: m.DocumentUploadPanel })));
@@ -102,9 +103,24 @@ export function CaseWorkspace({ kase, onReset }: { kase: Case; onReset: () => vo
 
         <div className="card" style={{ padding: 16, borderColor: "var(--color-primary)", background: "#f8fafc" }}>
           <JourneyStage current="action_plan" />
-          <span className="tiny" style={{ fontWeight: 800, color: "var(--color-primary)", letterSpacing: "0.06em" }}>NEXT STEP</span>
-          <h3 className="h3" style={{ margin: "4px 0" }}>{plan ? "Start with the first action below" : RECOVERY_STATES.noPlan.title}</h3>
-          <p className="small muted" style={{ margin: 0, lineHeight: 1.5 }}>{plan ? "Follow one practical step at a time. You can add evidence or review your facts whenever you need to." : RECOVERY_STATES.noPlan.message}</p>
+          <span className="tiny" style={{ fontWeight: 800, color: "var(--color-primary)", letterSpacing: "0.06em" }}>RECOMMENDED NEXT STEP</span>
+          {(() => {
+            const nextAction = nextRecommendedAction(plan);
+            return (
+              <>
+                <h3 className="h3" style={{ margin: "4px 0" }}>
+                  {nextAction ? `Next: ${nextAction.title}` : plan ? "All immediate steps completed" : RECOVERY_STATES.noPlan.title}
+                </h3>
+                <p className="small muted" style={{ margin: 0, lineHeight: 1.5 }}>
+                  {nextAction
+                    ? nextAction.description
+                    : plan
+                    ? "You have marked all immediate steps complete. If your issue remains unresolved, proceed to review evidence or prepare a draft complaint below."
+                    : RECOVERY_STATES.noPlan.message}
+                </p>
+              </>
+            );
+          })()}
         </div>
 
         {/* CASE SUMMARY — new Prompt 6 */}

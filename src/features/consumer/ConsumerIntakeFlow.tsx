@@ -77,6 +77,39 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
     }
   };
 
+  const handleSkip = () => {
+    if (!sessionId || !state?.currentStep) return;
+    const step = state.currentStep;
+    try {
+      const s = consumerIntakeEngine.skipQuestion(sessionId, step);
+      usabilityObservationService.record({ event: "skipped", step: "questions" });
+      refresh(s);
+      setAnswerInput("");
+      setSelectedChoices([]);
+      trackEvent({ event: "question_skipped", sessionId, step });
+      if (s.status === "ready") {
+        usabilityObservationService.record({ event: "step_completed", step: "questions" });
+        setShowSummary(true);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to skip question");
+    }
+  };
+
+  const handleBack = () => {
+    if (!sessionId) return;
+    try {
+      const s = consumerIntakeEngine.undoLastAnswer(sessionId);
+      usabilityObservationService.record({ event: "went_back", step: "questions" });
+      refresh(s);
+      setAnswerInput("");
+      setSelectedChoices([]);
+      setShowSummary(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to go back");
+    }
+  };
+
   const handleConfirm = async () => {
     if (!sessionId || !state) return;
     try {
@@ -319,10 +352,22 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
       <section className="container" style={{ padding: "24px 0 8px" }}>
         <div className="card" style={{ padding: 18 }}>
           <JourneyStage current="questions" />
-          <div className="row" style={{ justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-            <span className="tiny" style={{ letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 700, color: "var(--color-text-muted)" }}>
-              {lang === "hi" ? "आपकी स्थिति समझ रहे हैं" : "Understanding your situation"}
-            </span>
+          <div className="row" style={{ justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+            <div className="row" style={{ gap: 8 }}>
+              {state.answeredQuestions.length > 0 && (
+                <button
+                  className="btn btn--ghost btn--sm"
+                  onClick={handleBack}
+                  style={{ padding: "4px 10px", fontSize: "0.8rem", border: "1px solid var(--color-border)" }}
+                  title="Return to the previous question"
+                >
+                  ← {lang === "hi" ? "पीछे जाएं" : "Back"}
+                </button>
+              )}
+              <span className="tiny" style={{ letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 700, color: "var(--color-text-muted)" }}>
+                {lang === "hi" ? "आपकी स्थिति समझ रहे हैं" : "Understanding your situation"}
+              </span>
+            </div>
             <span className="tiny muted">{progressDone}/{progressTotal}</span>
           </div>
           <div style={{ height: 6, background: "var(--color-surface-2)", borderRadius: 999, marginBottom: 12 }}>
@@ -335,7 +380,13 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
           </div>
 
           <h3 className="h3" style={{ marginBottom: 4 }}>{nextQ.question}</h3>
-          {nextQ.helpText && <p className="small muted" style={{ margin: "0 0 12px" }}>{nextQ.helpText}</p>}
+          {nextQ.helpText && <p className="small muted" style={{ margin: "0 0 8px" }}>{nextQ.helpText}</p>}
+          {nextQ.whyAsk && (
+            <div style={{ padding: "6px 10px", background: "var(--color-surface-2)", borderRadius: 6, marginBottom: 12, display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span className="tiny" style={{ color: "var(--color-primary)", fontWeight: 600 }}>Why we ask:</span>
+              <span className="tiny muted">{nextQ.whyAsk}</span>
+            </div>
+          )}
 
           {isChoice && nextQ.choices ? (
             <div className="grid" style={{ gap: 8 }}>
@@ -344,15 +395,11 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
                   {c.label}
                 </button>
               ))}
-              <button className="btn btn--ghost btn--sm" onClick={() => { if (sessionId) {
-                    const cur = consumerIntakeEngine.getSession(sessionId);
-                    if (cur) {
-                      cur.answeredQuestions.push({ step: nextQ.id as ConsumerIntakeStep, questionId: nextQ.id, questionText: nextQ.question, rawAnswer: "skip", normalizedValue: null, confidence: "unknown", timestamp: new Date().toISOString() });
-                      setState({ ...cur });
-                    }
-                  }}}>
-                {lang === "hi" ? "छोड़ें" : "Skip"}
-              </button>
+              <div className="row" style={{ justifyContent: "flex-end", marginTop: 4 }}>
+                <button className="btn btn--ghost btn--sm" onClick={handleSkip}>
+                  {lang === "hi" ? "छोड़ें" : "Skip"}
+                </button>
+              </div>
             </div>
           ) : isMultiChoice && nextQ.choices ? (
             <div className="stack" style={{ gap: 8 }}>
@@ -362,23 +409,35 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
                   <span className="small">{c.label}</span>
                 </label>
               ))}
-              <div className="row" style={{ gap: 8, marginTop: 8 }}>
-                <button className="btn btn--primary" onClick={handleAnswer} disabled={selectedChoices.length === 0}>
-                  {lang === "hi" ? "जारी रखें" : "Continue"}
+              <div className="row" style={{ gap: 8, marginTop: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn btn--primary" onClick={handleAnswer} disabled={selectedChoices.length === 0}>
+                    {lang === "hi" ? "जारी रखें" : "Continue"}
+                  </button>
+                  <button className="btn btn--ghost" onClick={() => setSelectedChoices([])}>{lang === "hi" ? "साफ करें" : "Clear"}</button>
+                </div>
+                <button className="btn btn--ghost btn--sm" onClick={handleSkip}>
+                  {lang === "hi" ? "छोड़ें" : "Skip"}
                 </button>
-                <button className="btn btn--ghost" onClick={() => setSelectedChoices([])}>{lang === "hi" ? "साफ करें" : "Clear"}</button>
               </div>
             </div>
           ) : isNumber ? (
-            <div className="row" style={{ gap: 8 }}>
-              <input className="input" value={answerInput} onChange={(e) => setAnswerInput(e.target.value)} placeholder="₹25,000 or 25000 or 25k" style={{ flex: 1 }} inputMode="numeric" />
-              <button className="btn btn--primary" onClick={handleAnswer} disabled={!answerInput.trim()}>Continue</button>
+            <div className="stack" style={{ gap: 8 }}>
+              <div className="row" style={{ gap: 8 }}>
+                <input className="input" value={answerInput} onChange={(e) => setAnswerInput(e.target.value)} placeholder="₹25,000 or 25000 or 25k" style={{ flex: 1 }} inputMode="numeric" />
+                <button className="btn btn--primary" onClick={handleAnswer} disabled={!answerInput.trim()}>Continue</button>
+              </div>
+              <div className="row" style={{ justifyContent: "flex-end" }}>
+                <button className="btn btn--ghost btn--sm" onClick={handleSkip}>
+                  {lang === "hi" ? "छोड़ें" : "Skip"}
+                </button>
+              </div>
             </div>
           ) : (
             <div className="stack" style={{ gap: 8 }}>
               <textarea className="textarea" value={answerInput} onChange={(e) => setAnswerInput(e.target.value)} rows={2} placeholder={nextQ.type === "text" ? (lang === "hi" ? "यहाँ लिखें…" : "Type here…") : ""} />
               <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
-                <button className="btn btn--ghost" onClick={() => { setAnswerInput(""); const cur = consumerIntakeEngine.getSession(sessionId!); if (cur) { cur.answeredQuestions.push({ step: nextQ.id as ConsumerIntakeStep, questionId: nextQ.id, questionText: nextQ.question, rawAnswer: "skip", normalizedValue: null, confidence: "unknown", timestamp: new Date().toISOString() }); setState({ ...cur }); } }}>{lang === "hi" ? "छोड़ें" : "Skip"}</button>
+                <button className="btn btn--ghost" onClick={handleSkip}>{lang === "hi" ? "छोड़ें" : "Skip"}</button>
                 <button className="btn btn--primary" onClick={handleAnswer} disabled={!answerInput.trim()}>{lang === "hi" ? "जारी रखें" : "Continue"}</button>
               </div>
             </div>
@@ -387,7 +446,7 @@ export function ConsumerIntakeFlow({ onCaseReady }: { onCaseReady?: (caseId: str
           {error && <p className="small" role="alert" style={{ color: "#991b1b", marginTop: 8 }}>We could not save that answer. Please try again or skip this question for now.</p>}
 
           <p className="tiny muted" style={{ marginTop: 12, lineHeight: 1.5 }}>
-            {lang === "hi" ? "आप बाद में जवाब बदल सकते हैं।" : "You can correct this later. In local demo mode, data is limited to this browser."}
+            {lang === "hi" ? "आप बाद में जवाब बदल सकते हैं।" : "You can correct this later or skip if you don't know the exact details."}
           </p>
         </div>
 

@@ -1,0 +1,8 @@
+{
+  "name": "NyayaSetu",
+  "description": "India-focused AI legal assistance: understand what the law means, what to do next, and when to seek human help.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

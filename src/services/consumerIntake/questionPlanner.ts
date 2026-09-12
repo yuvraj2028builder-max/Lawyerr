@@ -14,6 +14,7 @@ export interface QuestionDef {
   required: boolean;
   priority: number; // 1 = most important
   helpText?: string;
+  whyAsk?: string;
   type: "text" | "number" | "choice" | "boolean" | "multi_choice";
   choices?: Array<{ value: string; label: string; labelHi?: string }>;
   isRelevant: (state: ConsumerIntakeState) => boolean;
@@ -28,6 +29,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
     required: true,
     priority: 1,
     type: "text",
+    whyAsk: "Understanding your story in your own words helps identify what happened without forcing rigid categories.",
     isRelevant: (s) => !s.facts.problemDescription,
   },
   {
@@ -39,6 +41,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
     priority: 2,
     type: "text",
     helpText: "E.g., phone, laptop, coaching course, flight ticket",
+    whyAsk: "Knowing whether it is goods or a service determines which consumer protection provisions apply.",
     isRelevant: (s) => !s.facts.productOrService,
   },
   {
@@ -50,6 +53,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
     priority: 2,
     type: "text",
     helpText: "E.g., Amazon, Flipkart, local shop, coaching institute",
+    whyAsk: "Identifying the business helps structure who should receive your formal complaint or grievance.",
     isRelevant: (s) => !s.facts.sellerOrProvider,
   },
   {
@@ -61,6 +65,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
     priority: 3,
     type: "text",
     helpText: "You can say '3 days ago' or a date like '10 Aug 2026'",
+    whyAsk: "Checking timelines helps ensure claims and returns are within standard limitation periods.",
     isRelevant: (s) => !s.facts.purchaseDate && !s.facts.relativeDateMention,
   },
   {
@@ -72,6 +77,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
     priority: 2,
     type: "number",
     helpText: "E.g., ₹25,000 or 25k",
+    whyAsk: "The disputed amount determines the relevant forum and compensation scope under consumer law.",
     isRelevant: (s) => !s.facts.amountPaid,
   },
   {
@@ -89,6 +95,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
       { value: "misleading", label: "Misleading description", labelHi: "भ्रामक जानकारी" },
       { value: "other", label: "Something else", labelHi: "कुछ और" },
     ],
+    whyAsk: "Pinpointing the specific issue (defect, non-delivery, poor service) clarifies the legal grounds.",
     isRelevant: (s) => !s.facts.deliveryStatus && !s.facts.problemDescription?.toLowerCase().includes("defective") && !s.facts.problemDescription?.toLowerCase().includes("damaged"),
   },
   {
@@ -105,6 +112,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
       { value: "acknowledged", label: "They acknowledged / promised", labelHi: "उन्होंने माना" },
       { value: "not_contacted", label: "I haven't contacted them yet", labelHi: "अभी संपर्क नहीं किया" },
     ],
+    whyAsk: "Official consumer grievance portals usually require proof that you first contacted the seller.",
     isRelevant: (s) => !s.facts.sellerResponse && s.facts.writtenComplaintMade === undefined,
   },
   {
@@ -123,6 +131,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
       { value: "understand_options", label: "Just understand my options", labelHi: "सिर्फ विकल्प समझना" },
       { value: "unsure", label: "I'm not sure", labelHi: "पता नहीं" },
     ],
+    whyAsk: "Clarifying your goal (refund, replacement, or repair) focuses your complaint on what you actually want.",
     isRelevant: (s) => s.desiredOutcomes.length === 0,
   },
   {
@@ -142,6 +151,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
       { value: "payment_record", label: "Bank / payment record", labelHi: "भुगतान रिकॉर्ड" },
       { value: "nothing_yet", label: "Nothing yet", labelHi: "कुछ नहीं" },
     ],
+    whyAsk: "Identifying available proof ensures your written complaint is grounded in verifiable documentation.",
     isRelevant: (s) => s.evidenceTypes.length === 0,
   },
   {
@@ -153,6 +163,7 @@ export const QUESTION_DEFS: QuestionDef[] = [
     priority: 5,
     type: "text",
     helpText: "E.g., Maharashtra, Delhi — helps with procedure later",
+    whyAsk: "Jurisdiction in consumer commissions is determined by where you live or where the transaction occurred.",
     isRelevant: (s) => !s.facts.stateOrUT && !s.facts.location,
   },
 ];
@@ -181,7 +192,9 @@ export function getNextQuestion(state: ConsumerIntakeState): QuestionDef | null 
   }
 
   // Find highest priority unanswered relevant question
-  const candidates = QUESTION_DEFS.filter((q) => q.isRelevant(state)).sort((a, b) => a.priority - b.priority);
+  const candidates = QUESTION_DEFS.filter(
+    (q) => !state.answeredQuestions.some((a) => a.step === q.id || a.questionId === q.id) && q.isRelevant(state)
+  ).sort((a, b) => a.priority - b.priority);
   return candidates[0] ?? null;
 }
 
@@ -197,6 +210,8 @@ export function computeMissingFacts(state: ConsumerIntakeState): import("@/types
 }
 
 export function shouldBeReady(state: ConsumerIntakeState): boolean {
+  if (!state.consumerFlowApplicable) return false;
+
   // Stop condition: enough for basic understanding
   // Core: product/service OR problemDescription, seller, amount or issueTypes, attempted resolution, desired outcome, evidence
   const hasCoreProduct = !!state.facts.productOrService || !!state.facts.problemDescription;
@@ -207,6 +222,12 @@ export function shouldBeReady(state: ConsumerIntakeState): boolean {
 
   // If vague and no core facts, not ready
   if (state.issueTypes.length === 0 && !hasCoreProduct) return false;
+
+  // If all relevant questions have been answered or skipped, be ready
+  const candidates = QUESTION_DEFS.filter(
+    (q) => !state.answeredQuestions.some((a) => a.step === q.id || a.questionId === q.id) && q.isRelevant(state)
+  );
+  if (candidates.length === 0 && (hasCoreProduct || state.answeredQuestions.length >= 2)) return true;
 
   // Ready if at least 3 of: product, money/issue, attempt, desired, evidence
   const count = [hasCoreProduct, hasMoney, hasAttempt, hasDesired, hasEvidence].filter(Boolean).length;

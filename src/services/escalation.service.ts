@@ -61,7 +61,13 @@ class EscalationService implements IEscalationService {
       isMock: true,
     };
 
-    if (level === "LOW") {
+    if (kase.problemCategory === "consumer_complaint") {
+      base.suggestedRoutes = [
+        { route: "government_authority", label: "National Consumer Helpline (NCH 1915)", description: "Pre-litigation grievance redressal via helpline or consumerhelpline.gov.in." },
+        { route: "government_authority", label: "District Consumer Commission (e-Daakhil)", description: "File a formal consumer complaint online if seller refuses to resolve." },
+        { route: "legal_aid_dlsa", label: "District Legal Services Authority (DLSA)", description: "Free legal assistance if eligible." },
+      ];
+    } else if (level === "LOW") {
       base.suggestedRoutes = [
         { route: "self_help", label: "Keep records + written request", description: "Often enough as a first step." },
         { route: "legal_aid_dlsa", label: "District Legal Services Authority (DLSA)", description: "Free legal aid if eligible — we can help you locate yours." },

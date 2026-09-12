@@ -46,6 +46,7 @@ export class ConsumerIntakeEngine {
       consumerFlowApplicable: true,
       missingFacts: [],
       answeredQuestions: [],
+      skippedQuestions: [],
       conflicts: [],
       evidenceTypes: [],
       desiredOutcomes: [],
@@ -627,6 +628,76 @@ export class ConsumerIntakeEngine {
     state.factRawTexts[field as keyof ConsumerCaseFacts] = chosenRaw;
     state.factConfidences[field as keyof ConsumerCaseFacts] = "explicit";
     conflict.status = "resolved";
+    this.recompute(state);
+    this.sessions.set(sessionId, state);
+    return { ...state };
+  }
+
+  /** Skip an intake question without forcing unknown facts */
+  skipQuestion(sessionId: string, step: ConsumerIntakeStep): ConsumerIntakeState {
+    const state = this.sessions.get(sessionId);
+    if (!state) throw new Error("Session not found");
+    state.skippedQuestions = state.skippedQuestions ?? [];
+    if (!state.skippedQuestions.includes(step)) {
+      state.skippedQuestions.push(step);
+    }
+    const questionDef = this.getQuestionDef(step);
+    state.answeredQuestions.push({
+      step,
+      questionId: step,
+      questionText: questionDef?.question ?? step,
+      rawAnswer: "[skipped]",
+      normalizedValue: null,
+      confidence: "unknown",
+      timestamp: nowIso(),
+    });
+    this.recompute(state);
+    this.sessions.set(sessionId, state);
+    return { ...state };
+  }
+
+  /** Undo the most recent question answered to allow non-destructive user correction */
+  undoLastAnswer(sessionId: string): ConsumerIntakeState {
+    const state = this.sessions.get(sessionId);
+    if (!state) throw new Error("Session not found");
+    if (state.answeredQuestions.length === 0) return { ...state };
+    const popped = state.answeredQuestions.pop();
+    if (popped) {
+      if (popped.rawAnswer === "[skipped]" && state.skippedQuestions) {
+        state.skippedQuestions = state.skippedQuestions.filter((s) => s !== popped.step);
+      }
+      const qDef = this.getQuestionDef(popped.step);
+      const field = (qDef?.key ?? popped.step) as keyof ConsumerCaseFacts;
+      delete (state.facts as Record<string, unknown>)[field];
+      delete state.factConfidences[field];
+      delete state.factRawTexts[field];
+      if (field === "desiredOutcome") state.desiredOutcomes = [];
+      if (field === "evidenceTypes") state.evidenceTypes = [];
+
+      // Re-extract from initial user narrative if present
+      if (state.userNarrative) {
+        this.extractFromText(state, state.userNarrative);
+      }
+      // Replay remaining answers
+      for (const a of state.answeredQuestions) {
+        if (a.rawAnswer !== "[skipped]" && a.normalizedValue !== null && a.normalizedValue !== undefined) {
+          const aDef = this.getQuestionDef(a.step);
+          const f = (aDef?.key ?? a.step) as keyof ConsumerCaseFacts;
+          if (f === "desiredOutcome") {
+            state.desiredOutcomes = [a.normalizedValue as never];
+            state.facts.desiredOutcome = a.normalizedValue as never;
+          } else if (f === "evidenceTypes") {
+            const arr = Array.isArray(a.normalizedValue) ? (a.normalizedValue as string[]) : [String(a.normalizedValue)];
+            state.evidenceTypes = arr as never;
+            state.facts.evidenceTypes = arr as never;
+          } else {
+            (state.facts as Record<string, unknown>)[f] = a.normalizedValue;
+          }
+          state.factConfidences[f] = a.confidence;
+          state.factRawTexts[f] = a.rawAnswer;
+        }
+      }
+    }
     this.recompute(state);
     this.sessions.set(sessionId, state);
     return { ...state };

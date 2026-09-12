@@ -582,6 +582,7 @@ export interface ActionItem {
   blockedReason?: string;
   createdAt?: ISODateString;
   updatedAt?: ISODateString;
+  completedAt?: ISODateString;
 }
 
 export interface ActionPlan {
@@ -909,6 +910,7 @@ export interface ConsumerIntakeState {
   domainReason?: string;
   missingFacts: ConsumerMissingFact[];
   answeredQuestions: ConsumerAnsweredQuestion[];
+  skippedQuestions?: string[];
   conflicts: IntakeConflict[];
   evidenceTypes: ConsumerEvidenceType[];
   desiredOutcomes: ConsumerDesiredOutcome[];

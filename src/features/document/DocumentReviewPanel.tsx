@@ -15,6 +15,12 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
   const [selected, setSelected] = useState<Record<string, Set<string>>>({}); // docId -> set of field keys
   const [conflicts, setConflicts] = useState<Record<string, Array<{ field: string; existingValue: unknown; extractedValue: unknown }>>>({});
   const [retryBusy, setRetryBusy] = useState<Record<string, boolean>>({});
+  const [conflictModal, setConflictModal] = useState<{
+    doc: DocumentUpload;
+    confirmed: DocumentExtractedFact[];
+    conflicts: Array<{ field: string; existingValue: unknown; extractedValue: unknown }>;
+    res: NonNullable<typeof results[string]>;
+  } | null>(null);
 
   const uploads = kase.documentUploads ?? [];
 
@@ -100,12 +106,17 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
     // Conflict handling — require user choice
     const { conflicts: found } = await documentFactMergeService.proposeMerge(kase.id, confirmed);
     if (found.length > 0) {
-      // Show conflict UI — for MVP, require explicit confirm per conflict
-      const msg = `Conflict detected:\n${found.map((c) => `${c.field}: existing ${String(c.existingValue)} vs document ${String(c.extractedValue)}`).join("\n")}\n\nContinue and overwrite? OK = Use document values, Cancel = Keep existing`;
-      const useDoc = confirm(msg);
-      if (!useDoc) return;
-      // User chose document values — proceed
+      setConflictModal({ doc, confirmed, conflicts: found, res });
+      return;
     }
+    await finalizeConfirmation(doc, confirmed, res);
+  };
+
+  const finalizeConfirmation = async (
+    doc: DocumentUpload,
+    confirmed: DocumentExtractedFact[],
+    res: NonNullable<typeof results[string]>
+  ) => {
     await documentFactMergeService.applyConfirmedFacts(kase.id, confirmed);
 
     // Deduplication: evidenceService handles duplicate-safe (same type+label)
@@ -140,6 +151,7 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
 
     const fresh = await caseEngine.getCase(kase.id);
     if (fresh) onUpdate(fresh);
+    setConflictModal(null);
   };
 
   const handleEditChange = (docId: string, field: string, value: string) => {
@@ -190,6 +202,46 @@ export function DocumentReviewPanel({ kase, onUpdate }: { kase: Case; onUpdate: 
 
   return (
     <div className="stack" style={{ gap: 12 }}>
+      {conflictModal && (
+        <div className="card" style={{ padding: 16, background: "#fffbeb", borderColor: "#fde68a" }}>
+          <h4 className="h3" style={{ margin: 0, color: "#92400e" }}>Conflict Detected — Review Your Choice</h4>
+          <p className="small muted" style={{ margin: "4px 0 10px", lineHeight: 1.5 }}>
+            The values extracted from <strong>{conflictModal.doc.fileName}</strong> conflict with existing facts in your case. Please choose how you would like to proceed:
+          </p>
+          <div className="stack" style={{ gap: 6, marginBottom: 12 }}>
+            {conflictModal.conflicts.map((c) => (
+              <div key={c.field} className="small" style={{ padding: "6px 8px", background: "#fff", borderRadius: 6, border: "1px solid #fde68a" }}>
+                <strong>{c.field}:</strong> Current case value is <code>{String(c.existingValue)}</code> vs document value <code>{String(c.extractedValue)}</code>
+              </div>
+            ))}
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <button
+              className="btn btn--primary btn--sm"
+              onClick={() => finalizeConfirmation(conflictModal.doc, conflictModal.confirmed, conflictModal.res)}
+            >
+              Use document values (Overwrite)
+            </button>
+            <button
+              className="btn btn--secondary btn--sm"
+              onClick={async () => {
+                const conflictFields = new Set(conflictModal.conflicts.map((c) => c.field));
+                const nonConflicting = conflictModal.confirmed.filter((f) => !conflictFields.has(f.field));
+                await finalizeConfirmation(conflictModal.doc, nonConflicting, conflictModal.res);
+              }}
+            >
+              Keep existing values
+            </button>
+            <button
+              className="btn btn--ghost btn--sm"
+              onClick={() => setConflictModal(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {uploads.map((doc) => {
         const res = results[doc.id];
         const isProcessing = processing[doc.id] || retryBusy[doc.id];
